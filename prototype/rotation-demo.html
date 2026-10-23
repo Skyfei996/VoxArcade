@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>方块旋转演示</title><link rel="stylesheet" href="rotation-demo.css"></head>
+<body><main>
+  <p class="intro">先看原来的位置，再看旋转后的占格。遇到墙或障碍时，逐个尝试挪位。</p>
+  <nav id="shapes" aria-label="选择演示形状"></nav>
+  <div class="selectors"><label>场景<select id="scenario"><option value="empty">无障碍</option><option value="left">靠左墙</option><option value="right">靠右墙</option><option value="obstacle">遇到方块障碍</option><option value="blocked">旋转失败</option></select></label><label>方向<select id="direction"><option value="cw">顺时针 90° ↷</option><option value="ccw">逆时针 90° ↶</option></select></label></div>
+  <p id="scenarioNote" class="scenario-note"></p>
+  <div class="demo-layout"><div><canvas id="demoBoard" width="480" height="480" role="img" aria-label="旋转示例棋盘"></canvas><p class="legend"><span>虚线：原来的方块</span><span>实色：当前尝试</span><span>红色：碰撞</span><span>＋：旋转中心</span></p></div><section class="explanation"><p class="eyebrow">一步一步看</p><h2 id="stepTitle"></h2><p id="stepDescription" role="status" aria-live="polite"></p><ol id="attemptList"></ol></section></div>
+  <div class="actions"><button id="play">▶ 播放演示</button><button id="next">下一步 →</button><button id="replay">↺ 重播</button></div>
+</main><script type="module" src="rotation-demo.mjs"></script></body></html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>VoxArcade · 麦克风与本地识别验证</title>
+  <link rel="stylesheet" href="./voice-check.css">
+</head>
+<body>
+<main>
+  <a href="./">← 返回游戏</a>
+  <h1>麦克风与本地识别验证</h1>
+  <p>先确认声音能进来，再测试语音识别。首次打开不申请权限。</p>
+  <section>
+    <h2>1 · 麦克风采集</h2>
+    <p>点击后向系统申请麦克风。本页不上传、不保存录音；最多采集 8 秒，切到后台立即停止。</p>
+    <dl id="environment"></dl>
+    <div class="actions"><button id="start">开始麦克风检测</button><button id="stop" disabled>停止检测</button></div>
+    <p id="captureStatus" role="status" aria-live="polite">尚未请求麦克风</p>
+    <label for="level">实时输入音量</label><meter id="level" min="0" max="1" value="0"></meter>
+    <p id="metrics">尚无采样数据</p>
+  </section>
+  <section>
+    <h2>2 · 免费本地语音识别</h2>
+    <p>手动加载随本站提供的 sherpa-onnx / Paraformer small 模型。模型在当前设备运行，录音不会发送到识别服务器。此页只显示转写，不操作游戏。</p>
+    <button id="loadModel">加载本地识别模型</button>
+    <p id="modelStatus" role="status" aria-live="polite">模型未加载；手机微信尚需真机验证</p>
+    <button id="recognize" disabled>开始说话（最多 8 秒）</button>
+    <p>测试口令：右移两格，顺时针旋转，落地提交。</p>
+    <p>当前记录：中文合成口令测试通过；英文口令存在误识别，未通过验收。真人口令与手机微信仍待验证。</p>
+    <label for="transcript">识别文字（仅保留在当前页面）</label><textarea id="transcript" rows="3" readonly></textarea>
+    <button id="clearText">清空文字</button>
+  </section>
+  <section><h2>微信验收</h2><p>请在 Android 微信和 iPhone 微信分别测试。能采到声音、能加载模型、能识别口令是三个独立结果；电脑测试或手机尺寸模拟不能代替微信真机。</p><p id="summary">本页不会自动上传检测结果。</p></section>
+</main>
+<script type="module" src="./voice-check.mjs"></script>
+</body>
+</html>

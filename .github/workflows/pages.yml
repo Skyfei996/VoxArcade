@@ -1,0 +1,37 @@
+name: Deploy game to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check game scripts
+        run: |
+          for file in prototype/{entry,app,engine,audio,board-view,desktop-view,mobile-view,rotation-demo}.{js,mjs}; do
+            if [ -f "$file" ]; then node --check "$file"; fi
+          done
+      - name: Test game logic
+        run: node --test prototype/tests/engine.test.mjs prototype/tests/device-audio.test.mjs
+      - name: Prepare game files
+        run: |
+          mkdir -p "$RUNNER_TEMP/voxarcade-pages"
+          cp prototype/{index.html,entry.mjs,desktop.html,mobile.html,base.css,desktop.css,mobile.css,desktop-view.mjs,mobile-view.mjs,board-view.mjs,app.js,engine.mjs,audio.mjs,rotation-demo.html,rotation-demo.css,rotation-demo.mjs} "$RUNNER_TEMP/voxarcade-pages/"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/voxarcade-pages
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
