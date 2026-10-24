@@ -31,7 +31,7 @@ export const CLASSIC_SPEEDS=[0.8,1.2,1.8,2.6,3.6,5,6.5,8,10];
 export function classicLevel(game){return game.autoLevel?Math.min(9,game.startLevel+Math.floor(game.score/1000)):game.startLevel;}
 function snapshot(game){const {undo,turnStart,transition,flow,...state}=game;return copy({...state,flow:null});}
 export function undoLastPiece(game){
-  if(!game.undo||game.flow)return false;
+  if(game.mode==='shuhang'||!game.undo||game.flow)return false;
   const state=copy(game.undo);
   for(const key of Object.keys(game))delete game[key];
   Object.assign(game,state,{undo:null,turnStart:null,transition:null,flow:null});
@@ -86,6 +86,7 @@ function spawn(game,type,id){
   if(!fits(game,game.active)){game.status='lost';game.active=null;game.message='出生位置被挡住了，换个方案再试。';}
 }
 function spawnNext(game){
+  if(game.mode==='shuhang')return;
   if(game.mode!=='puzzle'){
     while(game.queue.length<7)game.queue.push(...shuffledBag());
     spawn(game,game.queue.shift(),`E${++game.serial}`);
@@ -103,19 +104,20 @@ export function createGame(options={}){
   const mode=options.mode??'puzzle',levelIndex=options.levelIndex??0,level=LEVELS[levelIndex];
   const width=mode==='puzzle'?(level.width??6):10,height=mode==='puzzle'?(level.height??8):20;
   const game={mode,levelIndex,width,height,board:Array.from({length:height},()=>Array(width).fill(null)),
-    status:mode==='classic'?'playing':'paused',fallMode:mode==='classic'?'automatic':mode==='puzzle'?'manual':options.fallMode??'manual',speed:options.speed??1,
+    status:mode==='classic'?'playing':'paused',fallMode:mode==='classic'?'automatic':['puzzle','shuhang'].includes(mode)?'manual':options.fallMode??'manual',speed:options.speed??1,
     startLevel:Math.max(1,Math.min(9,Math.trunc(options.startLevel||1))),autoLevel:options.autoLevel??true,undo:null,turnStart:null,
+    difficulty:['easy','medium','hard'].includes(options.difficulty)?options.difficulty:'easy',layer:1,clearedLayers:0,batch:null,
     active:null,pool:[],queue:[],held:null,holdUsed:false,score:0,lines:0,moves:0,elapsed:0,
     gravity:0,generation:0,serial:0,flow:null,lastFlow:null,message:'先编排，点击运行后才执行。'};
   if(mode==='puzzle'){
     level.rows.forEach((row,y)=>[...row].forEach((v,x)=>{if(v==='#')game.board[height-level.rows.length+y][x]='fixed';}));
     game.pool=level.pieces.map((type,i)=>({type,id:`${type}#${i+1}`,used:false}));
   }
-  spawnNext(game);if(mode==='classic'){game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];game.turnStart=snapshot(game);}return game;
+  if(mode==='shuhang')dealBatch(game);else spawnNext(game);if(mode==='classic'){game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];game.turnStart=snapshot(game);}return game;
 }
 function commit(game){
   const piece=game.active;if(!piece)return;
-  game.undo=game.turnStart;
+  game.undo=game.mode==='shuhang'?null:game.turnStart;
   for(const {x,y} of cells(piece))game.board[y][x]=piece.type;
   const used=game.pool.find(p=>p.id===piece.id);if(used)used.used=true;
   const kept=game.board.filter(row=>row.some(v=>!v)),cleared=game.height-kept.length;
@@ -146,7 +148,7 @@ export function validatePlan(steps){
   if(!Array.isArray(steps)||!steps.length)return {ok:false,message:'请先添加指令。'};
   if(steps.length>60)return {ok:false,message:'一轮流程最多 60 步。'};
   for(const step of steps){
-    if(!step||typeof step.id!=='string')return {ok:false,message:'指令格式无效。'};
+    if(!step||typeof step.id!=='string'||step.params!==undefined&&(!step.params||typeof step.params!=='object'||Array.isArray(step.params)))return {ok:false,message:'指令格式无效。'};
     if(['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN'].includes(step.id)){
       const count=step.params?.cells??1,max=step.id==='MOVE_DOWN'?20:9;
       if(!Number.isInteger(count)||count<1||count>max)return {ok:false,message:`格数须为 1–${max} 的整数。`};
@@ -158,10 +160,11 @@ export function validatePlan(steps){
 }
 export function startFlow(game,steps){
   if(game.mode==='classic')return {ok:false,message:'常规模式直接操作，不使用流程。'};
+  if(game.mode==='shuhang'&&!game.batch)return {ok:false,message:'请完整安排本层全部方块后整批提交。'};
   if(game.flow)return {ok:false,message:'本轮流程尚未完成，请继续运行。'};
   if(['won','lost'].includes(game.status))return {ok:false,message:'请先重开或进入下一关。'};
   const check=validatePlan(steps);if(!check.ok)return check;
-  game.turnStart=snapshot(game);
+  game.turnStart=game.mode==='shuhang'?null:snapshot(game);
   game.flow={steps:copy(steps),cursor:0,pieceId:game.active?.id??null,logs:[],status:'running'};
   game.status='playing';game.gravity=0;return {ok:true,message:'开始运行流程'};
 }
@@ -187,6 +190,7 @@ export function dispatch(game,command){
     game.gravity=0;return {ok:true,message:'下落设置已更新'};
   }
   if(game.status!=='playing'||!game.flow)return {ok:false,message:'只能通过运行流程执行指令。'};
+  if(game.mode==='shuhang'&&!['MOVE_LEFT','MOVE_RIGHT','ROTATE_CW','ROTATE_CCW','HARD_DROP'].includes(id))return {ok:false,message:'舒航模式仅执行左右移动、旋转及自动落地。'};
   if(id==='SELECT_PIECE'){
     if(game.mode!=='puzzle'||!LEVELS[game.levelIndex].free)return {ok:false,message:'本关使用固定顺序。'};
     if(game.active)return {ok:false,message:'一轮流程只操作一个方块。'};
@@ -218,7 +222,7 @@ export function dispatch(game,command){
     while(moved<count&&fits(game,{...candidate,x:candidate.x+dx,y:candidate.y+dy})){candidate.x+=dx;candidate.y+=dy;moved++;}
     game.moves++;
     if(dx&&moved<count){
-      if(game.mode!=='classic'&&!fits(game,{...game.active,y:game.active.y+1}))return {ok:true,terminal:true,reason:'sideBlocked',message:'接地后左右受阻，终止流程。'};
+      if(!['classic','shuhang'].includes(game.mode)&&!fits(game,{...game.active,y:game.active.y+1}))return {ok:true,terminal:true,reason:'sideBlocked',message:'接地后左右受阻，终止流程。'};
       return {ok:true,skipped:true,message:game.mode==='classic'?'左右受阻，方块保持原位。':'左右受阻，本步不生效，继续下一步。'};
     }
     game.active=candidate;
@@ -274,3 +278,47 @@ export function advance(game,seconds){
   }
 }
 
+
+export const BATCH_SIZES={easy:3,medium:4,hard:5};
+const BATCH_ACTIONS=['MOVE_LEFT','MOVE_RIGHT','ROTATE_CW','ROTATE_CCW'];
+function dealBatch(game){
+  const count=BATCH_SIZES[game.difficulty];
+  while(game.queue.length<count)game.queue.push(...shuffledBag());
+  game.pool=game.queue.splice(0,count).map(type=>({type,id:`B${game.layer}-${++game.serial}`,used:false}));
+  game.active=null;game.flow=null;game.batch=null;game.status='paused';game.undo=null;
+  game.message=`第 ${game.layer} 层：安排全部 ${count} 块，再整批提交。`;
+}
+function beginBatchPiece(game){
+  const item=game.batch.items[game.batch.cursor],piece=game.pool.find(p=>p.id===item.pieceId);
+  spawn(game,piece.type,piece.id);
+  if(game.status==='lost'){game.batch=null;return;}
+  startFlow(game,[...item.steps,{id:'HARD_DROP'}]);
+}
+export function startBatch(game,items){
+  if(game.mode!=='shuhang')return {ok:false,message:'此模式不使用整批提交。'};
+  if(game.batch||game.flow)return {ok:false,message:'本层正在执行，不能修改方案。'};
+  if(game.status==='lost')return {ok:false,message:'本局已结束，请重新开始。'};
+  if(!Array.isArray(items)||items.length!==game.pool.length)return {ok:false,message:'必须安排本层全部方块。'};
+  const ids=new Set();
+  for(const item of items){
+    if(!item||!game.pool.some(p=>p.id===item.pieceId&&!p.used)||ids.has(item.pieceId))return {ok:false,message:'每个候选方块必须且只能使用一次。'};
+    ids.add(item.pieceId);
+    if(!Array.isArray(item.steps)||item.steps.length>59)return {ok:false,message:'每个方块最多编排 59 步。'};
+    if(item.steps.some(step=>!step||!BATCH_ACTIONS.includes(step.id)))return {ok:false,message:'舒航模式只能编排左右移动和旋转。'};
+    const check=validatePlan([...item.steps,{id:'HARD_DROP'}]);if(!check.ok)return check;
+  }
+  game.batch={items:copy(items),cursor:0};game.status='playing';beginBatchPiece(game);
+  return {ok:true,message:game.status==='lost'?game.message:'本层方案已锁定，开始整批执行。'};
+}
+export function stepBatch(game){
+  if(game.mode!=='shuhang'||!game.batch||!game.flow||game.status!=='playing')return {ok:false,message:'本层未运行。'};
+  const result=stepFlow(game);
+  if(!game.flow){
+    if(game.status==='lost'||!result.ok){game.batch=null;return result;}
+    game.batch.cursor++;
+    if(game.batch.cursor===game.batch.items.length){
+      game.clearedLayers++;game.layer++;dealBatch(game);
+    }else{game.status='playing';beginBatchPiece(game);}
+  }
+  return {...result,finished:!game.batch};
+}
