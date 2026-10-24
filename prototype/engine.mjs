@@ -15,6 +15,30 @@ export const LEVELS=[
   {id:'P007',title:'既定的旅程',width:8,height:12,rows:[],pieces:['I','O','Z','T','T','J','S','L'],free:false,goal:'八块按预设队列出场。不能改序，规划每块的朝向和位置，最终全部消除。',tags:['进阶 · 8 块','固定顺序']},
   {id:'P008',title:'不完整的拼图',width:8,height:12,rows:['......##','####..##'],pieces:['T','J','L','S','Z','T'],free:true,goal:'利用底部已有布局，自行安排五种形状共六块。必须用完，再清空整个棋盘。',tags:['进阶 · 6 块','自由排序']}
 ];
+const EXTRA_LEVELS=[
+  {id:'P009',title:'靠左的一横',rows:['....##'],pieces:['I'],free:false,difficulty:'简单',goal:'左移一格，让 I 填满底行。'},
+  {id:'P010',title:'靠右的方窗',rows:['####..','####..'],pieces:['O'],free:false,difficulty:'简单',goal:'把 O 移到右侧，同时消除两行。'},
+  {id:'P011',title:'四行奖励',rows:['##.###','##.###','##.###','##.###'],pieces:['I'],free:false,difficulty:'中等',goal:'把 I 竖起来，一次消除四行，获得 1000 分。'},
+  {id:'P012',title:'左侧的钩子',rows:['...###','##.###'],pieces:['J'],free:false,difficulty:'中等',goal:'把 J 翻转半圈，放到左侧的缺口，一次清空两行。'},
+  {id:'P013',title:'倒立的钥匙',rows:['###...','####.#'],pieces:['T'],free:false,difficulty:'中等',goal:'把 T 翻转半圈，对齐右侧缺口，清空两行。'},
+  {id:'P014',title:'残局接力',width:8,height:12,rows:['.#......','#####.##'],pieces:['T','J','S','L'],free:false,difficulty:'困难',goal:'四块按固定顺序出场。利用底部缺口，逐步消除并清空。'},
+  {id:'P015',title:'五块协作',width:8,height:12,rows:['...##.##'],pieces:['L','T','S','J','T'],free:true,difficulty:'困难',goal:'五块自由排序，T 有两块。规划顺序与朝向，全部用完并清空。'}
+];
+LEVELS.forEach((level,index)=>level.difficulty=index<2?'简单':index<5?'中等':'特困难');
+LEVELS.push(...EXTRA_LEVELS.map(level=>({...level,tags:[level.difficulty,level.free?'自由排序':'固定顺序']})));
+export const LINE_POINTS=[0,100,300,600,1000];
+export const CLASSIC_SPEEDS=[0.8,1.2,1.8,2.6,3.6,5,6.5,8,10];
+export function classicLevel(game){return game.autoLevel?Math.min(9,game.startLevel+Math.floor(game.score/1000)):game.startLevel;}
+function snapshot(game){const {undo,turnStart,transition,flow,...state}=game;return copy({...state,flow:null});}
+export function undoLastPiece(game){
+  if(!game.undo||game.flow)return false;
+  const state=copy(game.undo);
+  for(const key of Object.keys(game))delete game[key];
+  Object.assign(game,state,{undo:null,turnStart:null,transition:null,flow:null});
+  game.status='paused';
+  if(game.mode==='classic')game.turnStart=snapshot(game);
+  game.message='已撤回上一块，棋盘、库存和分数已恢复。';return true;
+}
 export const COMMANDS=[
   {id:'MOVE_LEFT',label:'左移',symbol:'←',parameter:true},
   {id:'MOVE_RIGHT',label:'右移',symbol:'→',parameter:true},
@@ -62,7 +86,7 @@ function spawn(game,type,id){
   if(!fits(game,game.active)){game.status='lost';game.active=null;game.message='出生位置被挡住了，换个方案再试。';}
 }
 function spawnNext(game){
-  if(game.mode==='endless'){
+  if(game.mode!=='puzzle'){
     while(game.queue.length<7)game.queue.push(...shuffledBag());
     spawn(game,game.queue.shift(),`E${++game.serial}`);
   }else if(!LEVELS[game.levelIndex].free){
@@ -76,25 +100,28 @@ export function inventory(game){
   }));
 }
 export function createGame(options={}){
-  const mode=options.mode??'puzzle',levelIndex=options.levelIndex??2,level=LEVELS[levelIndex];
+  const mode=options.mode??'puzzle',levelIndex=options.levelIndex??0,level=LEVELS[levelIndex];
   const width=mode==='puzzle'?(level.width??6):10,height=mode==='puzzle'?(level.height??8):20;
   const game={mode,levelIndex,width,height,board:Array.from({length:height},()=>Array(width).fill(null)),
-    status:'paused',fallMode:mode==='puzzle'?'manual':options.fallMode??'manual',speed:options.speed??1,
+    status:mode==='classic'?'playing':'paused',fallMode:mode==='classic'?'automatic':mode==='puzzle'?'manual':options.fallMode??'manual',speed:options.speed??1,
+    startLevel:Math.max(1,Math.min(9,Math.trunc(options.startLevel||1))),autoLevel:options.autoLevel??true,undo:null,turnStart:null,
     active:null,pool:[],queue:[],held:null,holdUsed:false,score:0,lines:0,moves:0,elapsed:0,
     gravity:0,generation:0,serial:0,flow:null,lastFlow:null,message:'先编排，点击运行后才执行。'};
   if(mode==='puzzle'){
     level.rows.forEach((row,y)=>[...row].forEach((v,x)=>{if(v==='#')game.board[height-level.rows.length+y][x]='fixed';}));
     game.pool=level.pieces.map((type,i)=>({type,id:`${type}#${i+1}`,used:false}));
   }
-  spawnNext(game);return game;
+  spawnNext(game);if(mode==='classic'){game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];game.turnStart=snapshot(game);}return game;
 }
 function commit(game){
   const piece=game.active;if(!piece)return;
+  game.undo=game.turnStart;
   for(const {x,y} of cells(piece))game.board[y][x]=piece.type;
   const used=game.pool.find(p=>p.id===piece.id);if(used)used.used=true;
   const kept=game.board.filter(row=>row.some(v=>!v)),cleared=game.height-kept.length;
   game.transition={piece:copy(piece),board:copy(game.board),rows:game.board.flatMap((row,y)=>row.every(Boolean)?[y]:[])};
-  game.score+=([0,100,300,500,800][cleared]??0)*(Math.floor(game.lines/10)+1);
+  game.score+=LINE_POINTS[cleared]??0;
+  if(game.mode==='classic')game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];
   game.lines+=cleared;
   game.board=[...Array.from({length:cleared},()=>Array(game.width).fill(null)),...kept];
   game.active=null;game.generation++;game.holdUsed=false;
@@ -103,6 +130,7 @@ function commit(game){
     game.status=game.board.every(row=>row.every(v=>!v))?'won':'lost';
     game.message=game.status==='won'?'全部方块已用完，棋盘全部清空！':'方块已用完，棋盘还没清空。换个方案再试。';
   }else spawnNext(game);
+  if(game.mode==='classic')game.turnStart=snapshot(game);
 }
 function endFlow(game,reason,commitActive=true){
   const flow=game.flow;if(!flow)return;
@@ -129,9 +157,11 @@ export function validatePlan(steps){
   return {ok:true,message:'执行时判断碰撞，不提前展示结果。'};
 }
 export function startFlow(game,steps){
+  if(game.mode==='classic')return {ok:false,message:'常规模式直接操作，不使用流程。'};
   if(game.flow)return {ok:false,message:'本轮流程尚未完成，请继续运行。'};
   if(['won','lost'].includes(game.status))return {ok:false,message:'请先重开或进入下一关。'};
   const check=validatePlan(steps);if(!check.ok)return check;
+  game.turnStart=snapshot(game);
   game.flow={steps:copy(steps),cursor:0,pieceId:game.active?.id??null,logs:[],status:'running'};
   game.status='playing';game.gravity=0;return {ok:true,message:'开始运行流程'};
 }
@@ -145,7 +175,7 @@ export function resumeFlow(game){
 export function dispatch(game,command){
   const {id,params={}}=command;
   if(id==='SET_FALL_MODE'||id==='SET_FALL_SPEED'){
-    if(game.mode==='puzzle')return {ok:false,message:'关卡下落规则不可更改。'};
+    if(game.mode!=='endless')return {ok:false,message:'此模式的下落方式固定。'};
     if(game.flow)return {ok:false,message:'本轮流程完成后再修改设置。'};
     if(id==='SET_FALL_MODE'){
       if(!['automatic','manual'].includes(params.mode))return {ok:false,message:'下落方式无效。'};
@@ -163,6 +193,7 @@ export function dispatch(game,command){
     const piece=game.pool.find(p=>p.type===params.type&&!p.used);
     if(!piece)return {ok:false,message:`${params.type} 方块已经用完。`};
     spawn(game,piece.type,piece.id);game.flow.pieceId=piece.id;
+    if(game.turnStart)game.turnStart.active=copy(game.active);
     return {ok:game.status!=='lost',message:`选择 ${piece.type} 方块`};
   }
   if(!game.active)return {ok:false,message:'本轮需要先选择一个形状。'};
@@ -175,9 +206,8 @@ export function dispatch(game,command){
     return {ok:true,terminal:true,reason:'hold',commit:false,message:'暂存交换，结束本轮'};
   }
   if(id==='HARD_DROP'){
-    const y=game.active.y;
     while(fits(game,{...game.active,y:game.active.y+1}))game.active.y++;
-    if(game.mode==='endless')game.score+=(game.active.y-y)*2;
+
     game.moves++;return {ok:true,terminal:true,reason:'hardDrop',message:'落地并提交'};
   }
   if(['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN'].includes(id)){
@@ -188,18 +218,18 @@ export function dispatch(game,command){
     while(moved<count&&fits(game,{...candidate,x:candidate.x+dx,y:candidate.y+dy})){candidate.x+=dx;candidate.y+=dy;moved++;}
     game.moves++;
     if(dx&&moved<count){
-      if(!fits(game,{...game.active,y:game.active.y+1}))return {ok:true,terminal:true,reason:'sideBlocked',message:'接地后左右受阻，终止流程。'};
-      return {ok:true,skipped:true,message:'左右受阻，本步不生效，继续下一步。'};
+      if(game.mode!=='classic'&&!fits(game,{...game.active,y:game.active.y+1}))return {ok:true,terminal:true,reason:'sideBlocked',message:'接地后左右受阻，终止流程。'};
+      return {ok:true,skipped:true,message:game.mode==='classic'?'左右受阻，方块保持原位。':'左右受阻，本步不生效，继续下一步。'};
     }
     game.active=candidate;
-    if(dy&&game.mode==='endless')game.score+=moved;
+
     if(dy&&moved<count)return {ok:true,terminal:true,reason:'downBlocked',message:`下移 ${moved} 格后受阻，终止流程。`};
     return {ok:true,message:`${dx<0?'左移':dx>0?'右移':'下移'} ${moved} 格`};
   }
   if(id==='ROTATE_CW'||id==='ROTATE_CCW'){
     const trace=rotationTrace(game,game.active,id==='ROTATE_CW');game.moves++;
     if(trace.ok){game.active=trace.piece;return {ok:true,message:id==='ROTATE_CW'?'顺转 90°':'逆转 90°'};}
-    return {ok:true,skipped:true,message:'旋转受阻，本步不生效，继续下一步。'};
+    return {ok:true,skipped:true,message:game.mode==='classic'?'旋转受阻，方块保持原位。':'旋转受阻，本步不生效，继续下一步。'};
   }
   return {ok:false,message:'没有这个预制指令。'};
 }
@@ -213,7 +243,27 @@ export function stepFlow(game){
   else if(flow.cursor>=flow.steps.length)endFlow(game,'complete');
   return {...result,finished:!game.flow};
 }
+export function classicAction(game,command){
+  if(game.mode!=='classic'||game.status!=='playing')return {ok:false,message:'请先继续游戏。'};
+  if(!['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN','ROTATE_CW','ROTATE_CCW','HARD_DROP'].includes(command.id))return {ok:false,message:'常规模式不使用流程。'};
+  game.transition=null;
+  game.flow={pieceId:game.active?.id};
+  const result=dispatch(game,command);game.flow=null;
+  if(result.terminal)commit(game);
+  if(!game.transition)game.message=result.message;return result;
+}
 export function advance(game,seconds){
+  if(game.mode==='classic'){
+    if(game.status!=='playing')return;
+    game.elapsed+=seconds;game.gravity+=seconds;
+    const interval=1/game.speed;
+    while(game.gravity>=interval&&game.active){
+      game.gravity-=interval;
+      if(fits(game,{...game.active,y:game.active.y+1}))game.active.y++;
+      else{game.transition=null;commit(game);break;}
+    }
+    return;
+  }
   if(game.status!=='playing'||game.flow?.status!=='running')return;
   game.elapsed+=seconds;
   if(game.fallMode!=='automatic'||!game.active)return;

@@ -12,19 +12,19 @@ Windows 已配置当前用户登录后自动在后台启动，入口为 `prototy
 
 ## GitHub Pages 与 Codex Cloud
 
-GitHub 仓库：<https://github.com/Skyfei996/VoxArcade>。按钮版游戏已发布至 <https://skyfei996.github.io/VoxArcade/>。`.github/workflows/pages.yml` 只在 GitHub Actions 中手动运行，发布 `main` 分支的游戏文件；推送代码本身不会自动更新网站。Pages 的 Source 已设为 GitHub Actions；后续每次公开发布前按 `AGENTS.md` 单独取得授权。
+GitHub 仓库：<https://github.com/Skyfei996/VoxArcade>。按钮版游戏已发布至 <https://skyfei996.github.io/VoxArcade/>。`.github/workflows/pages.yml` 在 `main` 的游戏文件更新后自动执行，也保留手动运行入口。完成检查后自动提交、推送并合并游戏改动，部署成功且核验线上页面后交付。Pages 的 Source 为 GitHub Actions，普通游戏同步已获长期授权。
 
 发布包只包含游戏入口、PC/手机视图、规则、音效和旋转演示。语音验证页、模型、测试脚本、预览服务和评审截图不会成为公开站点内容。大型语音模型和评审截图也由 `.gitignore` 排除在首版仓库之外，本地文件保留。
 
-本机 GitHub 认证已通过 Git Credential Manager 的设备授权完成，不把 token 放进聊天、文件或命令参数。Codex Cloud 尚需在 Work in → Cloud 中另行连接该 GitHub 仓库并创建环境；本机 Git 凭据不会自动同步到云端。云端环境使用本项目 `AGENTS.md`，运行 `node --test prototype/tests/engine.test.mjs prototype/tests/device-audio.test.mjs` 验证改动；审查云端提交或 PR 后再合并，公开发布仍手动触发。
+本机 GitHub 认证已通过 Git Credential Manager 的设备授权完成，不把 token 放进聊天、文件或命令参数。Codex Cloud 尚需在 Work in → Cloud 中另行连接该 GitHub 仓库并创建环境；本机 Git 凭据不会自动同步到云端。云端环境使用本项目 `AGENTS.md`，运行 `node --test prototype/tests/engine.test.mjs prototype/tests/device-audio.test.mjs` 验证改动；普通游戏改动完成检查后自动合并并同步 Pages。
 
 入口自动识别设备，加载独立的 PC 或手机页面。PC 窄窗口仍保持 PC 视图；手机横屏沿用手机版。电脑浏览器按 F12 切换手机设备后刷新页面可查看手机版，也可访问 `http://localhost:4173/?view=mobile` 强制预览。两端共用游戏规则，分别提供布局及视图交互：PC 单列关卡/后续方块栏与大棋盘，手机首屏棋盘和操作区、可展开编辑的流程抽屉。暂存入口已隐藏。
 
-默认打开第六关“七形拼图”。共有八关：五个基础关、三个六至八块的进阶关，分别采用自由排序和固定顺序。
+默认打开第一关。共有十五关，分为简单、中等、困难、特困难，分别采用自由排序和固定顺序。
 
 ## 当前规则
 
-- 选形显示初始形状和直接下落影子；暂停按钮左侧可打开旋转预览，顺逆转按钮会临时转动棋盘上的方块，离开预览区后还原。草稿动作不提前执行，也不预演完整流程结果。PC 棋盘四边标出行列坐标。
+- 选形显示初始形状和直接下落影子；工具栏眼睛图标可打开旋转预览，顺逆转按钮会临时转动棋盘上的方块，离开预览区后还原。草稿动作不提前执行，也不预演完整流程结果。PC 棋盘四边标出行列坐标。
 - 选择格数并添加一次操作后，格数重置为 1。
 - 一轮流程只操作一个方块；运行结束自动清空流程。
 - 左右移动途中受阻则整步无效；接地时横移受阻，或下移实际受阻，才终止流程。刚好接地可横移，脱离障碍后可继续下移。
@@ -41,7 +41,7 @@ GitHub 仓库：<https://github.com/Skyfei996/VoxArcade>。按钮版游戏已发
 - [项目规范](AGENTS.md)
 - [游戏设计](docs/GAME_DESIGN.md)
 - [统一指令与运行规则](docs/COMMAND_SET.md)
-- [八个关卡与解法](docs/LEVEL_DESIGN.md)
+- [十五个关卡与解法](docs/LEVEL_DESIGN.md)
 - [实施与验收](docs/IMPLEMENTATION_PLAN.md)
 - [原型说明](prototype/README.md)
 - [免费语音验证结果与微信验收范围](docs/VOICE_VALIDATION.md)
@@ -49,3 +49,12 @@ GitHub 仓库：<https://github.com/Skyfei996/VoxArcade>。按钮版游戏已发
 - [交互、动画、声音与旋转演示方案](docs/INTERACTION_FEEDBACK_PLAN.md)
 - [两端界面、音效与语音设计](docs/DEVICE_AUDIO_VOICE_PLAN.md)
 
+
+## 2026-10-24 更新
+
+- 三种玩法：解谜闯关、无尽编排、常规模式。常规模式没有流程，点击立即操作，方块持续自动下落；暂停后需手动继续。
+- 所有模式只按消行计分：一行 100、两行 300、三行 600、四行 1000。移动和落地无附加分，等级不乘积分。
+- 常规模式速度等级 1–9：每秒 0.8、1.2、1.8、2.6、3.6、5、6.5、8、10 格。可选起始等级；勾选积分升级后每 1000 分提升一级，最高九级，关闭后保持手动等级。
+- 单块撤回恢复上一块执行前的棋盘、库存、分数、动作数与当前方块；只能撤回一次，重玩并提交后可再次撤回。运行及动画期间禁用，常规撤回后暂停。
+- 每次打开页面及切换模式显示可跳过的分步引导，帮助入口可重看；手机帮助入口在设置内。旋转预览与重置使用不同图标。
+- 默认第一关，保留原八关编号并新增七关；选关列表按难度分组，编号不代表难度先后。
