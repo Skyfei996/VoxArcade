@@ -275,7 +275,7 @@ test('Shuhang rejects partial, duplicate, unknown and forbidden plans atomically
   for(const invalid of [null,[],items.slice(1),[items[0],items[0],items[2]],[{pieceId:'missing',steps:[]},...items.slice(1)]]){
     assert.equal(startBatch(game,invalid).ok,false);assert.deepEqual(game,before);
   }
-  for(const command of [drop,a('MOVE_DOWN'),select('I'),a('HOLD'),a('MOVE_LEFT',null),move('MOVE_LEFT',0),move('MOVE_RIGHT',10),move('MOVE_LEFT',1.5)]){
+  for(const command of [a('SUBMIT_PIECE'),a('MOVE_DOWN'),select('I'),a('HOLD'),a('MOVE_LEFT',null),move('MOVE_LEFT',0),move('MOVE_RIGHT',10),move('MOVE_LEFT',1.5)]){
     const invalid=copy(items);invalid[0].steps=[command];assert.equal(startBatch(game,invalid).ok,false);assert.deepEqual(game,before);
   }
 });
@@ -535,4 +535,81 @@ test('Shuhang phase replaces exactly one candidate and uses the common auto-drop
   assert.equal(startBatch(game,ids.map(pieceId=>({pieceId,steps:[]}))).ok,true);stepBatch(game);
   assert.equal(game.board[19][4],'PHASE');assert.equal(game.board[10][4],'fixed');assert.equal(game.pool.find(p=>p.id===target).used,true);
   pauseFlow(game);const paused=copy(game);stepBatch(game);assert.deepEqual(game,paused);resumeFlow(game);finishBatch(game);assert.equal(game.layer,2);
+});
+
+const land=a('LAND'),submitPiece=a('SUBMIT_PIECE');
+function cavityFixture(mode='endless'){
+  const game=createGame({mode});game.active={type:'O',id:game.active.id,matrix:copy(SHAPES.O),x:4,y:0};
+  game.board[16][2]='J';game.board[16][3]='J';game.board[19][4]='L';game.board[19][5]='L';
+  return game;
+}
+
+test('landing alone preserves the same block for later lateral movement beneath an overhang',()=>{
+  const game=cavityFixture(),id=game.active.id;const initial=copy(game.board);
+  run(game,[land]);assert.equal(game.active.id,id);assert.equal(game.active.y,17);assert.equal(game.placementOpen,true);assert.deepEqual(game.board,initial);assert.equal(game.score,0);
+  run(game,[move('MOVE_LEFT',2)]);assert.equal(game.active.x,2);assert.equal(game.active.y,17);assert.deepEqual(game.board,initial);
+  run(game,[land]);assert.equal(game.active.y,18);assert.equal(game.placementOpen,true);assert.deepEqual(game.board,initial);
+  run(game,[submitPiece]);assert.equal(game.placementOpen,false);assert.notEqual(game.active.id,id);
+  for(const y of [18,19])for(const x of [2,3])assert.equal(game.board[y][x],'O');
+  assert.equal(game.board[16][2],'J');
+});
+
+test('landing then sliding and committing can run in a single authored flow',()=>{
+  const game=cavityFixture();run(game,[land,move('MOVE_LEFT',2),drop]);
+  assert.equal(game.board[19][2],'O');assert.equal(game.board[18][3],'O');assert.equal(game.placementOpen,false);
+  assert.equal(game.lastFlow.executed,3);
+});
+
+test('grounded collisions after landing alone do not accidentally submit the current block',()=>{
+  const game=cavityFixture();run(game,[land]);const id=game.active.id,board=copy(game.board);
+  game.board[17][3]='fixed';const blocked=copy(game.board);
+  run(game,[move('MOVE_LEFT',1),move('MOVE_DOWN',1)]);
+  assert.equal(game.active.id,id);assert.equal(game.active.x,4);assert.equal(game.placementOpen,true);assert.deepEqual(game.board,blocked);
+  assert.ok(game.lastFlow.logs.every(log=>log.skipped));assert.notDeepEqual(game.board,board);
+});
+
+test('classic landing alone freezes gravity lock while permitting immediate slide and explicit submission',()=>{
+  const game=cavityFixture('classic'),id=game.active.id;classicAction(game,land);assert.equal(game.active.y,17);
+  const settled=copy(game);advance(game,100);assert.deepEqual(game,settled);
+  classicAction(game,move('MOVE_LEFT',2));classicAction(game,land);assert.equal(game.active.y,18);assert.equal(game.active.id,id);
+  classicAction(game,submitPiece);assert.equal(game.board[19][2],'O');assert.equal(game.placementOpen,false);assert.equal(game.status,'playing');
+  const y=game.active.y;advance(game,2);assert.ok(game.active.y>y);
+});
+
+test('undo after several landing adjustments restores the original whole turn',()=>{
+  const game=cavityFixture(),start=copy(game.active),board=copy(game.board);
+  run(game,[land]);run(game,[move('MOVE_LEFT',2)]);run(game,[land]);run(game,[submitPiece]);
+  assert.equal(undoLastPiece(game),true);assert.deepEqual(game.active,start);assert.deepEqual(game.board,board);assert.equal(game.placementOpen,false);
+});
+
+test('phase landing is held without overwriting a sealed hole until explicit submit',()=>{
+  const game=toolFixture('PHASE');game.board[12][4]='J';run(game,[land]);
+  assert.equal(game.active.y,19);assert.equal(game.board[19][4],null);assert.equal(game.board[12][4],'J');
+  run(game,[submitPiece]);assert.equal(game.board[19][4],'PHASE');assert.equal(game.placementOpen,false);
+});
+
+test('landing mode never defers bomb contact detonation',()=>{
+  const game=toolFixture('BOMB');game.board[17][4]='J';run(game,[land,move('MOVE_LEFT',2)]);
+  assert.equal(game.lastFlow.reason,'explosion');assert.equal(game.lastFlow.executed,1);assert.equal(game.transition.kind,'explosion');assert.equal(game.placementOpen,false);
+});
+
+test('tool replacement clears an open placement and resumes classic gravity',()=>{
+  const game=cavityFixture('classic');classicAction(game,land);assert.equal(game.placementOpen,true);
+  assert.equal(useTool(game,'PHASE').ok,true);assert.equal(game.placementOpen,false);assert.equal(game.active.y,0);
+  advance(game,2);assert.ok(game.active.y>0);
+});
+
+test('Shuhang accepts landing before sliding but still commits and advances only as a batch',()=>{
+  const game=createGame({mode:'shuhang'});game.pool.forEach(p=>p.type='O');
+  game.board[16][2]='J';game.board[16][3]='J';game.board[19][4]='L';game.board[19][5]='L';
+  const items=game.pool.map((p,i)=>({pieceId:p.id,steps:i===0?[land,move('MOVE_LEFT',2)]:[move('MOVE_RIGHT',i===1?2:4)]}));
+  assert.equal(startBatch(game,items).ok,true);assert.equal(stepBatch(game).ok,true);assert.equal(game.placementOpen,true);assert.equal(game.batch.cursor,0);
+  finishBatch(game);assert.equal(game.layer,2);assert.equal(game.board[19][2],'O');assert.equal(game.placementOpen,false);
+});
+
+test('explicit Shuhang drop submission ends that candidate without replaying its automatic final drop',()=>{
+  const game=createGame({mode:'shuhang'}),ids=game.pool.map(p=>p.id);game.pool.forEach(p=>p.type='O');
+  const items=ids.map((pieceId,i)=>({pieceId,steps:i===0?[drop]:[move('MOVE_RIGHT',i*2)]}));
+  assert.equal(startBatch(game,items).ok,true);assert.equal(stepBatch(game).ok,true);assert.equal(game.batch.cursor,1);assert.equal(game.pool[0].used,true);
+  finishBatch(game);assert.equal(game.layer,2);assert.equal(game.board.flat().filter(Boolean).length,12);
 });

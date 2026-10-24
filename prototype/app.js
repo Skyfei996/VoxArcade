@@ -1,5 +1,5 @@
-import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=tools-20261024';
-import {GameAudio,commandSound} from './audio.mjs?v=tools-20261024';
+import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=landing-control-20261024';
+import {GameAudio,commandSound} from './audio.mjs?v=landing-control-20261024';
 import {sizeBoard,drawGrid} from './board-view.mjs';
 const {view}=await import(document.body.dataset.view==='mobile'?'./mobile-view.mjs':'./desktop-view.mjs');
 const audio=new GameAudio();
@@ -9,7 +9,7 @@ const recordKey='vox-prototype-v2-completed';
 let completed=new Set();
 try{const saved=JSON.parse(localStorage.getItem(recordKey)||'[]');if(Array.isArray(saved))completed=new Set(saved.filter(n=>Number.isInteger(n)&&n>=0&&n<LEVELS.length));}catch{}
 let game=createGame({levelIndex:0});
-const ui={plan:[],wait:0,gravityTime:0,animation:null,step:null,quantity:1,lastFallMode:'manual',lastSpeed:1,previewPiece:null,classicStartLevel:1,autoLevel:true,batchDifficulty:'easy',batchDrafts:[],batchSelected:null,batchLayer:null};
+const ui={plan:[],wait:0,gravityTime:0,animation:null,step:null,quantity:1,lastFallMode:'manual',lastSpeed:1,previewPiece:null,classicStartLevel:1,autoLevel:true,batchDifficulty:'easy',batchDrafts:[],batchSelected:null,batchLayer:null,dropOnly:false};
 let ruleToastTimer;
 const running=()=>game.flow?.status==='running';
 function miniature(type){
@@ -53,7 +53,8 @@ function append(command){
     if(game.flow||ui.animation||game.status==='lost')return;
     const draft=ui.batchDrafts.find(item=>item.pieceId===ui.batchSelected);
     if(!draft){notify('先在候选区选择要安排的方块。',true);return;}
-    if(!['MOVE_LEFT','MOVE_RIGHT','ROTATE_CW','ROTATE_CCW'].includes(command.id))return;
+    if(!['MOVE_LEFT','MOVE_RIGHT','ROTATE_CW','ROTATE_CCW','LAND','HARD_DROP'].includes(command.id))return;
+    if(draft.steps.some(step=>step.id==='HARD_DROP')){notify('本块已安排落地并提交；如需继续调整，请先在方案里移除该步骤。',true);return;}
     if(draft.steps.length>=59){notify('每块最多安排 59 步。',true);return;}
     draft.steps.push(copy(command));ui.quantity=1;$('quantity').value='1';
     notify(`已安排：${label(command)}。棋盘不会预演结果。`);render();return;
@@ -65,7 +66,7 @@ function append(command){
     const result=classicAction(next,{...command,params:{cells:1}});
     if(!result.ok){notify(result.message,true);return;}
     audio.unlock();audio.music(true);const sound=commandSound(command,result);if(sound)audio.effect(sound);
-    notify(result.message);if(next.transition)beginAnimation(next,next.transition.piece,view.drop);else{game=next;render();}return;
+    notify(result.message);if(next.transition||command.id==='LAND')beginAnimation(next,next.transition?.piece??next.active,view.drop);else{game=next;render();}return;
   }
 
   if(game.flow){notify('本轮流程尚未完成，请先继续运行。',true);return;}
@@ -76,14 +77,14 @@ function append(command){
     const existing=ui.plan.findIndex(step=>step.id==='SELECT_PIECE');
     if(existing>=0)ui.plan[existing]=command;else ui.plan.unshift(command);
   }else{
-    if(command.id==='HARD_DROP'&&!game.active&&!ui.plan.some(step=>step.id==='SELECT_PIECE')){notify('请先选择一个形状。',true);return;}
+    if(['LAND','HARD_DROP'].includes(command.id)&&!game.active&&!ui.plan.some(step=>step.id==='SELECT_PIECE')){notify('请先选择一个形状。',true);return;}
     if(ui.plan.length>=60){notify('一轮流程最多 60 步。',true);return;}
     ui.plan.push(command);
   }
   if(command.id!=='SELECT_PIECE'){ui.quantity=1;$('quantity').value='1';}
   audio.unlock();audio.effect(command.id==='SELECT_PIECE'?'select':'click');
   notify(`已加入：${label(command)}。运行前不展示流程结果。`);render();$('planList').scrollTop=$('planList').scrollHeight;
-  if(command.id==='HARD_DROP')runPlan();
+  if(['LAND','HARD_DROP'].includes(command.id))runPlan();
 }
 function draftPiece(){
   if(game.mode==='shuhang'&&(game.flow||ui.animation||game.status==='lost'))return null;
@@ -104,7 +105,7 @@ function executeNext(){
   ui.step={text:`${game.mode==='shuhang'?`第 ${game.batch.cursor+1} 块 · `:''}第 ${game.flow.cursor+1} 步 · ${label(command)}${result.skipped?'（受阻，跳过）':''}`,piece:target??game.active,remaining:900};
   notify(`第 ${game.flow.cursor+1} 步：${result.message}`,!result.ok);
   const sound=commandSound(command,result);if(sound)audio.effect(sound);
-  beginAnimation(next,target,command.id==='HARD_DROP'?view.drop:view.motion);
+  beginAnimation(next,target,['LAND','HARD_DROP'].includes(command.id)?view.drop:view.motion);
 }
 function beginAnimation(next,target,duration){
   const from=game.active??draftPiece();
@@ -122,6 +123,7 @@ function animate(milliseconds){
 }
 function runPlan(){
   if(running())return;
+  if(game.mode==='classic'){if(game.placementOpen)append({id:'SUBMIT_PIECE'});return;}
   if(game.mode==='shuhang'){
     if(ui.animation)return;
     if(game.flow)resumeFlow(game);
@@ -133,6 +135,7 @@ function runPlan(){
   if(game.flow){resumeFlow(game);audio.effect('resume');}
   else{
     if(!game.active&&!ui.plan.some(step=>step.id==='SELECT_PIECE')){notify('请先选择一个形状。',true);return;}
+    if(game.placementOpen&&!ui.plan.length)ui.plan=[{id:'SUBMIT_PIECE'}];
     const result=startFlow(game,ui.plan);
     if(!result.ok){notify(result.message,true);return;}
   }
@@ -229,9 +232,9 @@ function renderPlan(){
   const cursor=game.flow?.cursor??0,locked=!!game.flow;
   $('flowCount').textContent=ui.plan.length;$('flowEmpty').hidden=ui.plan.length>0;
   $('planList').innerHTML=ui.plan.map((command,index)=>`<li class="plan-step ${command.id==='SELECT_PIECE'?'select-step':''} ${index<cursor?'executed':''} ${running()&&index===cursor?'current':''}"><span class="step-index">${index<cursor?'✓':String(index+1).padStart(2,'0')}</span><span class="step-label">${label(command)}</span><button class="step-action" data-up="${index}" aria-label="上移第${index+1}步" ${locked||index===0?'disabled':''}>↑</button><button class="step-action" data-remove="${index}" aria-label="移除第${index+1}步" ${locked?'disabled':''}>×</button></li>`).join('');
-  $('planValidation').textContent=running()?`运行 ${cursor} / ${ui.plan.length} · 碰撞在执行时判断`:game.flow?'已暂停 · 继续后不会重放已执行步骤':ui.plan.length?`共 ${ui.plan.length} 步 · 运行前不展示效果或判断碰撞`:'编排一块的动作，运行结束后固定当前位置。';
-  $('runPlan').disabled=running()||(!ui.plan.length&&!game.flow)||['won','lost'].includes(game.status);
-  $('runPlan').innerHTML=`${icon('play')}${game.flow?'继续运行':'结束并运行流程'}`;
+  $('planValidation').textContent=running()?`运行 ${cursor} / ${ui.plan.length} · 碰撞在执行时判断`:game.flow?'已暂停 · 继续后不会重放已执行步骤':game.placementOpen?'已落地未提交 · 可以运行调整步骤，调整完毕后提交当前方块':ui.plan.length?`共 ${ui.plan.length} 步 · 运行前不展示效果或判断碰撞`:'编排一块的动作，运行结束后固定当前位置。';
+  $('runPlan').disabled=running()||(!ui.plan.length&&!game.flow&&!game.placementOpen)||['won','lost'].includes(game.status);
+  $('runPlan').innerHTML=`${icon('play')}${game.flow?'继续运行':game.placementOpen?(ui.plan.length?'运行调整步骤':'提交当前方块'):'结束并运行流程'}`;
   $('stopPlan').hidden=!running();$('clearPlan').disabled=locked;
 }
 function renderResult(){
@@ -239,7 +242,7 @@ function renderResult(){
   $('resultOverlay').hidden=!paused&&!ended;if(!paused&&!ended)return;
   $('resultIcon').textContent=paused?'Ⅱ':won?'✓':'↻';$('resultEyebrow').textContent=paused?'TAKE YOUR TIME':won?'WELL PLAYED':'ANOTHER WAY AWAITS';
   $('resultTitle').textContent=paused?(game.mode==='classic'?'游戏已暂停':'流程已暂停'):won?'全部消除！':'换个方案，再试一次。';
-  $('resultDescription').textContent=paused?(game.mode==='classic'?'继续后恢复自动下落，也可以撤回上一块。':'已执行步骤保留，继续后从下一步运行。'):won?`全部 ${game.pool.length} 块已使用，${game.moves} 次动作，消除 ${game.lines} 行。`:game.message;
+  $('resultDescription').textContent=paused?(game.mode==='classic'?(game.placementOpen?'继续后仍可调整当前方块，确认位置后提交。':'继续后恢复自动下落，也可以撤回上一块。'):'已执行步骤保留，继续后从下一步运行。'):won?`全部 ${game.pool.length} 块已使用，${game.moves} 次动作，消除 ${game.lines} 行。`:game.message;
   $('resultPrimary').innerHTML=paused?`${icon('play')}${game.mode==='classic'?'继续游戏':'继续运行'}`:won&&game.mode==='puzzle'&&game.levelIndex<LEVELS.length-1?`下一关 ${icon('arrow')}`:won?'重新挑战':'重新开始';
   $('resultSecondary').textContent=paused?'重开本局':won?'再试一次':'重新安排步骤';
   if(game.mode==='shuhang'){
@@ -291,6 +294,14 @@ function render(){
     button.disabled=button.dataset.command.startsWith('ROTATE')&&isTool(shownPiece?.type)||!!game.flow||!!ui.animation||['won','lost'].includes(game.status)||game.mode==='classic'&&game.status!=='playing'||game.mode==='shuhang'&&!ui.batchSelected;
     const item=COMMANDS.find(c=>c.id===button.dataset.command);button.querySelector('.command-detail').textContent=item.parameter?`${game.mode==='classic'?1:ui.quantity} 格`:item.id==='HARD_DROP'?(game.mode==='classic'?'立即落地固定':'运行并提交'):'旋转方块';
   });
+  const dropButton=document.querySelector('[data-command="HARD_DROP"]');
+  dropButton.querySelector('.command-label').firstChild.textContent=ui.dropOnly?'落地':'落地并提交';
+  dropButton.querySelector('.command-detail').textContent=ui.dropOnly?'不提交 · 长按切换':'长按切换为只落地';
+  dropButton.setAttribute('aria-label',ui.dropOnly?'落地，不提交，长按切换':'落地并提交，长按切换');
+  dropButton.title='短按执行当前模式；长按 0.5 秒或 Shift+Enter 切换落地/落地并提交';
+  dropButton.classList.toggle('drop-only',ui.dropOnly);
+  $('submitPlacement').hidden=game.mode!=='classic'||!game.placementOpen;
+  $('submitPlacement').disabled=!!ui.animation||game.status!=='playing';
   $('rotationPreviewButton').disabled=isTool(shownPiece?.type)||!shownPiece||!!game.flow||!!ui.animation||['won','lost'].includes(game.status);
   if($('rotationPreviewButton').disabled)closeRotationPreview();
   renderLevels();renderPieces();renderPlan();renderResult();view.render(game,game.mode==='shuhang'?ui.batchDrafts:ui.plan);
@@ -388,7 +399,34 @@ function draw(){
 }
 const commandOrder=['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN','ROTATE_CCW','ROTATE_CW','HARD_DROP'];
 $('commandGrid').innerHTML=commandOrder.map(id=>COMMANDS.find(item=>item.id===id)).map(item=>`<button class="command-button" data-command="${item.id}"><span class="command-symbol" aria-hidden="true">${item.symbol}</span><span class="command-label">${item.label}<small class="command-detail">${item.parameter?'1 格':item.id==='HARD_DROP'?'提交本轮':'旋转方块'}</small></span></button>`).join('');
-$('commandGrid').onclick=event=>{const button=event.target.closest('[data-command]');if(button)append({id:button.dataset.command,params:{cells:ui.quantity}});};
+const dropGesture={timer:null,longPressed:false,x:0,y:0};
+const dropControl=document.querySelector('[data-command="HARD_DROP"]');
+function cancelDropHold(){clearTimeout(dropGesture.timer);dropGesture.timer=null;}
+function toggleDropMode(){
+  if(dropControl.disabled||tourActive)return;
+  ui.dropOnly=!ui.dropOnly;audio.unlock();audio.effect('click');
+  showRuleToast(ui.dropOnly?'已切换：只落地，之后仍可调整并提交。':'已切换：落地并提交。');render();
+}
+dropControl.addEventListener('pointerdown',event=>{
+  if(event.button!==0||dropControl.disabled)return;
+  cancelDropHold();dropGesture.longPressed=false;dropGesture.x=event.clientX;dropGesture.y=event.clientY;
+  dropGesture.timer=setTimeout(()=>{dropGesture.timer=null;dropGesture.longPressed=true;toggleDropMode();},500);
+});
+dropControl.addEventListener('pointermove',event=>{if(Math.hypot(event.clientX-dropGesture.x,event.clientY-dropGesture.y)>10)cancelDropHold();});
+for(const event of ['pointerup','pointercancel','pointerleave'])dropControl.addEventListener(event,cancelDropHold);
+dropControl.addEventListener('contextmenu',event=>event.preventDefault());
+dropControl.addEventListener('keydown',event=>{
+  if(event.key==='Enter'&&event.shiftKey){event.preventDefault();if(event.repeat)return;cancelDropHold();toggleDropMode();}
+  else if(event.key==='Enter'||event.key===' '){dropGesture.longPressed=false;}
+});
+$('commandGrid').onclick=event=>{
+  const button=event.target.closest('[data-command]');if(!button)return;
+  if(button===dropControl&&dropGesture.longPressed){dropGesture.longPressed=false;return;}
+  const id=button===dropControl&&ui.dropOnly?'LAND':button.dataset.command;
+  append({id,params:{cells:ui.quantity}});
+};
+const submitPlacement=document.createElement('button');submitPlacement.id='submitPlacement';submitPlacement.className='secondary-button full-width';submitPlacement.textContent='提交当前方块';submitPlacement.hidden=true;
+submitPlacement.onclick=()=>append({id:'SUBMIT_PIECE'});$('commandGrid').after(submitPlacement);
 $('rotationPreviewButton').onclick=()=>{
   if(game.mode==='classic'&&game.status==='playing')pause();
   if(!$('rotationPreviewMenu').hidden){closeRotationPreview();draw();return;}
@@ -511,7 +549,7 @@ function startTour(){
     ['#undoButton','撤回上一块','撤销最近一个已固定方块的整轮操作，包括消行和积分；恢复原来的棋盘、库存及同一个方块，重新操作。只能撤回一块，运行和动画期间不可用。'],
     [classic||game.mode==='endless'?'#endlessNote':'.piece-bar','当前方块与库存',classic?'方块列表最上面是当前方块，下面按顺序显示后续方块。':'固定顺序按队列出场；自由排序先点选一个形状，数字表示该形状剩余数量。'],
     ['#commandGrid','移动与旋转',classic?'左右移动、下移、逆转、顺转都立即生效。每次移动一格。':'点击左移、右移、下移、逆转、顺转，只添加流程步骤。格数可以设置，动作加入后自动回到一格。'],
-    ['[data-command="HARD_DROP"]','落地并提交',classic?'立即降到落点并固定当前方块，然后换下一块。':'把“落地并提交”加入末尾，并自动执行整份流程；先执行前面的移动和旋转，再落地固定。'],
+    ['[data-command="HARD_DROP"]','落地并提交',classic?'默认短按落地并提交；长按半秒切换为只落地。只落地后自动锁定会等待，可继续左右、下移或旋转，再点“提交当前方块”；也可长按切回落地并提交。':'默认短按落地并提交；长按半秒切换为只落地。只落地会运行已有步骤并保留当前块，可以再编排左右或下移动作，运行调整后点“提交当前方块”，也可切回落地并提交。'],
     ...(classic?[
       ['#classicControls','九级速度','手动选择起始等级。一共九级，越高越快；勾选积分升级，每累计 1000 分在起始等级上提升一级，最高九级。取消勾选则保持手动等级。'],
       ['#pauseButton','暂停与继续','暂停会冻结自动下落，点击继续恢复。打开设置、引导或切到后台也会暂停。']
@@ -524,7 +562,7 @@ function startTour(){
     ['.mode-switch','舒航模式','先在脑海中规划一整层，再一次性执行。选中候选后显示它的出生位置和初始方向，方便计算移动格数；规划时不执行动作，也不预览落点或旋转结果。'],
     ['#batchControls','选择难度与层数','简单每层 3 块，中等 4 块，困难 5 块。全部执行后未溢出就进入下一层，保留棋盘和积分。切换难度会重新开局。'],
     ['.piece-bar','每一块都必须选','逐个点击本层候选，点击顺序就是执行顺序。同形状的方块各自独立，每一块都要选一次。点击已选的方块可继续编辑。'],
-    ['#commandGrid','只规划左右移动和旋转','先选一块，再添加左右移动、顺转或逆转。没有下移或单块落地按钮；不加动作表示按初始方向直接落地。棋盘上的所选方块保持出生位置和初始方向，请自己推演前面方块对后面的影响。'],
+    ['#commandGrid','规划移动与落地','先选一块，再编排左右移动、旋转。长按落地按钮半秒可切换只落地，把落地→横移排进同一候选的流程；所有步骤仍等整批提交后执行。每块末尾自动落地并提交，不加动作表示按初始方向直接落地。'],
     [mobile?'#flowPanel':'#planList','检查整层方案','这里逐块列出操作，↑ 调整出场顺序，× 删除动作或取消某块安排。全部候选都安排完，才能整批提交。'],
     ['#runPlan','整批提交','方案锁定后逐块执行：移动和旋转 → 自动落地固定 → 消行 → 下一块。执行期间不能修改；暂停只冻结进度。'],
     ['#toolShelf','道具占用候选名额','先选中一个候选，再点道具：立即扣一个并替换该候选、清除它的旧动作，仍占本层一个名额。单格无需旋转。整批执行时穿墙或碰撞引爆，之后继续下一块；点击后取消安排也不退道具。每 1000 分交替奖励道具。'],

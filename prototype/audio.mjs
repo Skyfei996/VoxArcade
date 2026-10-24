@@ -23,7 +23,7 @@ export const SOUNDS={
 export function commandSound(command,result){
   if(!result.ok)return 'invalid';
   if(result.skipped||result.reason==='sideBlocked')return command.id.startsWith('ROTATE')?'rotationBlocked':'blocked';
-  return {MOVE_LEFT:'left',MOVE_RIGHT:'right',MOVE_DOWN:'down',ROTATE_CW:'clockwise',ROTATE_CCW:'counterclockwise',HARD_DROP:'drop'}[command.id]??null;
+  return {MOVE_LEFT:'left',MOVE_RIGHT:'right',MOVE_DOWN:'down',ROTATE_CW:'clockwise',ROTATE_CCW:'counterclockwise',LAND:'drop',SUBMIT_PIECE:'lock',HARD_DROP:'drop'}[command.id]??null;
 }
 export class GameAudio{
   constructor(){
