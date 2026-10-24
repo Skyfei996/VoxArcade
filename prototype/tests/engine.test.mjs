@@ -330,3 +330,59 @@ test('Shuhang grounded lateral collision skips only that action before automatic
   stepBatch(game);assert.equal(game.active.x,6);assert.equal(game.active.y,0);
   stepBatch(game);assert.equal(game.pool[0].used,true);assert.equal(game.board[19][6],'O');
 });
+
+
+test('all puzzle layouts are distinct, including horizontal mirrors',()=>{
+  const seen=new Map();
+  for(const level of LEVELS){
+    const rows=level.rows.slice();while(rows[0]&&[...rows[0]].every(c=>c==='.'))rows.shift();
+    const shapeKey=[...level.pieces].sort().join('');
+    const geometry=rows.join('/'),mirror=rows.map(r=>[...r].reverse().join('')).join('/');
+    // A mirror also swaps handed tetrominoes, so compare both forms with their inventory.
+    const mirroredShapes=[...level.pieces].map(t=>({J:'L',L:'J',S:'Z',Z:'S'}[t]??t)).sort().join('');
+    const prefix=`${level.width??6}x${level.height??8}:${level.free?'free':'fixed'}:`;
+    for(const key of new Set([prefix+geometry+':'+shapeKey,prefix+mirror+':'+mirroredShapes])){
+      assert.equal(seen.has(key),false,`${level.id} duplicates ${seen.get(key)}`);seen.set(key,level.id);
+    }
+  }
+});
+
+test('redesigned easy levels introduce two-piece placement and basic rotation',()=>{
+  for(const index of [8,9]){
+    assert.equal(LEVELS[index].difficulty,'简单');assert.equal(LEVELS[index].pieces.length,2);
+    const game=createGame({levelIndex:index});run(game,LEVEL_SOLUTIONS[index][0]);
+    assert.notEqual(game.status,'won');assert.equal(game.pool.filter(p=>!p.used).length,1);
+  }
+  assert.ok(LEVEL_SOLUTIONS[9].flat().some(c=>c.id.startsWith('ROTATE_')));
+});
+
+test('redesigned medium solutions need setup turns and do not follow inventory order',()=>{
+  for(const index of [10,11,12]){
+    const level=LEVELS[index];assert.equal(level.difficulty,'中等');assert.ok(level.pieces.length>=3&&level.pieces.length<=4);
+    const game=createGame({levelIndex:index});run(game,LEVEL_SOLUTIONS[index][0]);
+    assert.equal(game.lines,0,`${level.id} reference starts with a setup turn`);
+    assert.notEqual(game.status,'won');assert.ok(game.board.flat().some(Boolean));
+    if(level.free){
+      const chosen=LEVEL_SOLUTIONS[index].map(flow=>flow.find(c=>c.id==='SELECT_PIECE').params.type);
+      assert.notDeepEqual(chosen,level.pieces);
+    }
+    const naive=createGame({levelIndex:index});
+    for(const type of level.pieces){
+      if(naive.status==='lost')break;
+      assert.equal(startFlow(naive,[...(level.free?[select(type)]:[]),drop]).ok,true);
+      while(naive.flow)stepFlow(naive);
+    }
+    assert.equal(naive.status,'lost',`${level.id} cannot be cleared by selecting and dropping in order`);
+  }
+});
+
+test('reversing the authored order fails in the redesigned free-order medium puzzles',()=>{
+  for(const index of [10,12]){
+    const game=createGame({levelIndex:index});
+    for(const flow of [...LEVEL_SOLUTIONS[index]].reverse()){
+      if(game.status==='lost')break;
+      run(game,flow);
+    }
+    assert.equal(game.status,'lost');
+  }
+});

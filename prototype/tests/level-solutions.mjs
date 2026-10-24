@@ -21,12 +21,13 @@ export const LEVEL_SOLUTIONS=[
   ADVANCED_FLOWS.map(flow=>flow.filter(command=>command.id!=='SELECT_PIECE')),
   ADVANCED_FLOWS.slice(2)
 ];
+// Redesigned P009-P013, followed by the unchanged hard-level reference flows.
 LEVEL_SOLUTIONS.push(
-  [[left(1),drop]],
-  [[right(2),drop]],
-  [[cw,left(1),drop]],
-  [[cw,cw,left(1),drop]],
-  [[cw,cw,right(2),drop]],
+  [[{"id":"MOVE_LEFT","params":{"cells":2}},{"id":"HARD_DROP"}],[{"id":"MOVE_RIGHT","params":{"cells":1}},{"id":"HARD_DROP"}]],
+  [[{"id":"ROTATE_CW"},{"id":"ROTATE_CW"},{"id":"HARD_DROP"}],[{"id":"MOVE_RIGHT","params":{"cells":2}},{"id":"HARD_DROP"}]],
+  [[{"id":"SELECT_PIECE","params":{"type":"L"}},{"id":"ROTATE_CW"},{"id":"MOVE_LEFT","params":{"cells":2}},{"id":"HARD_DROP"}],[{"id":"SELECT_PIECE","params":{"type":"S"}},{"id":"ROTATE_CW"},{"id":"MOVE_LEFT","params":{"cells":1}},{"id":"HARD_DROP"}],[{"id":"SELECT_PIECE","params":{"type":"I"}},{"id":"MOVE_RIGHT","params":{"cells":1}},{"id":"HARD_DROP"}]],
+  [[{"id":"ROTATE_CW"},{"id":"MOVE_RIGHT","params":{"cells":1}},{"id":"HARD_DROP"}],[{"id":"ROTATE_CW"},{"id":"ROTATE_CW"},{"id":"ROTATE_CW"},{"id":"MOVE_RIGHT","params":{"cells":3}},{"id":"HARD_DROP"}],[{"id":"MOVE_LEFT","params":{"cells":1}},{"id":"HARD_DROP"}]],
+  [[{"id":"SELECT_PIECE","params":{"type":"Z"}},{"id":"HARD_DROP"}],[{"id":"SELECT_PIECE","params":{"type":"Z"}},{"id":"ROTATE_CW"},{"id":"MOVE_RIGHT","params":{"cells":2}},{"id":"HARD_DROP"}],[{"id":"SELECT_PIECE","params":{"type":"J"}},{"id":"ROTATE_CW"},{"id":"MOVE_RIGHT","params":{"cells":1}},{"id":"HARD_DROP"}],[{"id":"SELECT_PIECE","params":{"type":"O"}},{"id":"MOVE_LEFT","params":{"cells":2}},{"id":"HARD_DROP"}]],
   ADVANCED_FLOWS.slice(4).map(flow=>flow.filter(command=>command.id!=='SELECT_PIECE')),
   ADVANCED_FLOWS.slice(3)
 );
