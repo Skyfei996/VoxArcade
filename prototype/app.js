@@ -85,8 +85,8 @@ function append(command){
   if(command.id==='HARD_DROP')runPlan();
 }
 function draftPiece(){
-  if(game.mode==='shuhang')return null;
-  const type=ui.plan.find(step=>step.id==='SELECT_PIECE')?.params.type;
+  if(game.mode==='shuhang'&&(game.flow||ui.animation||game.status==='lost'))return null;
+  const type=game.mode==='shuhang'?game.pool.find(piece=>piece.id===ui.batchSelected&&!piece.used)?.type:ui.plan.find(step=>step.id==='SELECT_PIECE')?.params.type;
   return !game.active&&type?{type,matrix:SHAPES[type],x:Math.floor((game.width-SHAPES[type].length)/2),y:0}:null;
 }
 function settleUI(){
@@ -477,10 +477,10 @@ function startTour(){
     ])
   ];
   if(game.mode==='shuhang')tourSteps=[
-    ['.mode-switch','舒航模式','先在脑海中规划一整层，再一次性执行。棋盘只展示已经固定的方块，规划时不预览落点或旋转结果。'],
+    ['.mode-switch','舒航模式','先在脑海中规划一整层，再一次性执行。选中候选后显示它的出生位置和初始方向，方便计算移动格数；规划时不执行动作，也不预览落点或旋转结果。'],
     ['#batchControls','选择难度与层数','简单每层 3 块，中等 4 块，困难 5 块。全部执行后未溢出就进入下一层，保留棋盘和积分。切换难度会重新开局。'],
     ['.piece-bar','每一块都必须选','逐个点击本层候选，点击顺序就是执行顺序。同形状的方块各自独立，每一块都要选一次。点击已选的方块可继续编辑。'],
-    ['#commandGrid','只规划左右移动和旋转','先选一块，再添加左右移动、顺转或逆转。没有下移或单块落地按钮；不加动作表示按初始方向直接落地。棋盘保持冻结，请自己推演前面方块对后面的影响。'],
+    ['#commandGrid','只规划左右移动和旋转','先选一块，再添加左右移动、顺转或逆转。没有下移或单块落地按钮；不加动作表示按初始方向直接落地。棋盘上的所选方块保持出生位置和初始方向，请自己推演前面方块对后面的影响。'],
     [mobile?'#flowPanel':'#planList','检查整层方案','这里逐块列出操作，↑ 调整出场顺序，× 删除动作或取消某块安排。全部候选都安排完，才能整批提交。'],
     ['#runPlan','整批提交','方案锁定后逐块执行：移动和旋转 → 自动落地固定 → 消行 → 下一块。执行期间不能修改；暂停只冻结进度。'],
     ['#layerStatus','挑战更高层','整批存活就进入下一层并给出新候选；方块出生溢出时结束，显示到达层数、通过层数和得分。没有单块撤回，规划后再提交。'],
