@@ -21,3 +21,12 @@ export const LEVEL_SOLUTIONS=[
   ADVANCED_FLOWS.map(flow=>flow.filter(command=>command.id!=='SELECT_PIECE')),
   ADVANCED_FLOWS.slice(2)
 ];
+LEVEL_SOLUTIONS.push(
+  [[left(1),drop]],
+  [[right(2),drop]],
+  [[cw,left(1),drop]],
+  [[cw,cw,left(1),drop]],
+  [[cw,cw,right(2),drop]],
+  ADVANCED_FLOWS.slice(4).map(flow=>flow.filter(command=>command.id!=='SELECT_PIECE')),
+  ADVANCED_FLOWS.slice(3)
+);

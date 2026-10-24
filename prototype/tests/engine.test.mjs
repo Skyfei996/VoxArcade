@@ -181,3 +181,77 @@ test('invalid parameters are rejected without simulating the board',()=>{
   assert.equal(validatePlan([move('MOVE_LEFT',9)]).ok,true);
 });
 
+
+test('line rewards stay fixed and strongly reward a four-line clear',async()=>{
+  const {LINE_POINTS}=await import('../engine.mjs');
+  assert.deepEqual(LINE_POINTS,[0,100,300,600,1000]);
+  assert.ok(LINE_POINTS[4]>2*LINE_POINTS[2]);
+  for(let lines=1;lines<=4;lines++){
+    const game=createGame({mode:'endless'});
+    game.lines=20;
+    game.active={type:'I',id:'score',matrix:[[1],[1],[1],[1]],x:0,y:0};
+    for(let y=game.height-lines;y<game.height;y++)game.board[y].fill('fixed',1);
+    run(game,[drop]);assert.equal(game.score,LINE_POINTS[lines]);
+  }
+});
+test('undo restores a clear, score, inventory and original spawn, once only',async()=>{
+  const {undoLastPiece}=await import('../engine.mjs');
+  const game=createGame({levelIndex:1}),before=copy(game);
+  run(game,[drop]);assert.equal(game.score,300);
+  assert.equal(undoLastPiece(game),true);
+  for(const key of ['board','score','lines','moves','pool','queue','active'])assert.deepEqual(game[key],before[key]);
+  assert.equal(game.status,'paused');assert.equal(undoLastPiece(game),false);
+  run(game,[drop]);assert.equal(game.status,'won');assert.equal(game.score,300);
+});
+test('undo a free-order selection gives the same piece back ready to plan',async()=>{
+  const {undoLastPiece}=await import('../engine.mjs');
+  const game=createGame({levelIndex:2});run(game,[select('I'),a('ROTATE_CW'),drop]);
+  assert.equal(undoLastPiece(game),true);assert.equal(game.active.type,'I');
+  assert.deepEqual(game.active.matrix,SHAPES.I);assert.equal(game.pool.filter(p=>p.used).length,0);
+  run(game,[a('ROTATE_CW'),drop]);assert.equal(game.lines,2);
+});
+test('undo cannot interrupt a flow, and restores an endless queue after a failed spawn',async()=>{
+  const {undoLastPiece}=await import('../engine.mjs');
+  const game=createGame({mode:'endless'});game.board[0].fill('fixed');game.board[0][0]=null;game.board[1].fill('fixed');game.board[1][0]=null;
+  const original=copy(game.active),queue=copy(game.queue);startFlow(game,[drop]);
+  assert.equal(undoLastPiece(game),false);while(game.flow)stepFlow(game);
+  assert.equal(game.status,'lost');assert.equal(undoLastPiece(game),true);
+  assert.deepEqual(game.active,original);assert.deepEqual(game.queue,queue);
+});
+test('classic actions are immediate and never commit on grounded lateral collision',async()=>{
+  const {classicAction}=await import('../engine.mjs');const game=createGame({mode:'classic'});
+  game.active={type:'O',id:game.active.id,matrix:copy(SHAPES.O),x:0,y:18};
+  const generation=game.generation;
+  assert.equal(classicAction(game,move('MOVE_LEFT',1)).skipped,true);
+  assert.equal(game.generation,generation);assert.equal(game.active.x,0);assert.equal(game.flow,null);
+  classicAction(game,move('MOVE_RIGHT',1));assert.equal(game.active.x,1);
+  classicAction(game,drop);assert.equal(game.generation,generation+2);assert.equal(game.flow,null);
+});
+test('classic gravity, pause, nine levels and score-based acceleration',async()=>{
+  const {classicLevel,CLASSIC_SPEEDS,classicAction}=await import('../engine.mjs');
+  const game=createGame({mode:'classic',startLevel:2}),y=game.active.y;
+  advance(game,1/game.speed);assert.equal(game.active.y,y+1);
+  game.status='paused';const before=copy(game);advance(game,20);assert.deepEqual(game,before);
+  assert.equal(classicAction(game,drop).ok,false);game.status='playing';
+  game.score=7000;assert.equal(classicLevel(game),9);game.score=90000;assert.equal(classicLevel(game),9);
+  game.autoLevel=false;assert.equal(classicLevel(game),2);assert.equal(CLASSIC_SPEEDS.length,9);
+  for(let i=1;i<9;i++)assert.ok(CLASSIC_SPEEDS[i]>CLASSIC_SPEEDS[i-1]);
+});
+test('classic undo restores a full turn and pauses for a deliberate retry',async()=>{
+  const {classicAction,undoLastPiece}=await import('../engine.mjs');
+  const game=createGame({mode:'classic'}),piece=copy(game.active),queue=copy(game.queue);
+  classicAction(game,move('MOVE_LEFT',1));advance(game,3);classicAction(game,drop);
+  assert.equal(undoLastPiece(game),true);assert.equal(game.status,'paused');
+  assert.deepEqual(game.active,piece);assert.deepEqual(game.queue,queue);assert.equal(game.board.flat().some(Boolean),false);
+});
+test('classic clear actually applies automatic acceleration and manual speed stays fixed',async()=>{
+  const {CLASSIC_SPEEDS,classicAction}=await import('../engine.mjs');
+  for(const autoLevel of [true,false]){
+    const game=createGame({mode:'classic',startLevel:1,autoLevel});game.score=900;
+    game.active={type:'I',id:game.active.id,matrix:[[1],[1],[1],[1]],x:0,y:0};
+    for(let y=16;y<20;y++)game.board[y].fill('fixed',1);
+    classicAction(game,drop);assert.equal(game.score,1900);
+    assert.equal(game.speed,CLASSIC_SPEEDS[autoLevel?1:0]);
+    assert.equal(game.lines,4);assert.equal(game.status,'playing');
+  }
+});
