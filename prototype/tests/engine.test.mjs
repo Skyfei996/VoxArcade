@@ -386,3 +386,153 @@ test('reversing the authored order fails in the redesigned free-order medium puz
     assert.equal(game.status,'lost');
   }
 });
+
+// Special blocks use the same turn, collision, score and batch executors.
+import {useTool,TOOL_TYPES,shapeMatrix,classicAction,undoLastPiece} from '../engine.mjs';
+function toolFixture(type,mode='endless'){
+  const game=createGame({mode});
+  assert.equal(useTool(game,type).ok,true);return game;
+}
+
+test('tools are excluded from puzzle mode and from ordinary random bags',()=>{
+  const puzzle=createGame();assert.equal(puzzle.tools,null);
+  const before=copy(puzzle);assert.equal(useTool(puzzle,'BOMB').ok,false);assert.deepEqual(puzzle,before);
+  for(const mode of ['endless','classic','shuhang']){
+    const game=createGame({mode});assert.equal(game.tools.PHASE,1);assert.equal(game.tools.BOMB,1);
+    assert.ok(game.queue.every(type=>!TOOL_TYPES.includes(type)));assert.deepEqual(shapeMatrix('PHASE'),[[1]]);
+  }
+});
+
+test('using a tool immediately consumes it, resets position and invalidates the old undo',()=>{
+  const game=createGame({mode:'endless'}),id=game.active.id,queue=copy(game.queue);
+  game.active.x=0;game.active.y=5;game.undo=copy(game);game.turnStart=copy(game);
+  assert.equal(useTool(game,'PHASE').ok,true);
+  assert.deepEqual({id:game.active.id,type:game.active.type,x:game.active.x,y:game.active.y},{id,type:'PHASE',x:4,y:0});
+  assert.equal(game.tools.PHASE,0);assert.equal(game.undo,null);assert.deepEqual(game.queue,queue);
+  run(game,[drop]);assert.equal(undoLastPiece(game),true);
+  assert.equal(game.tools.PHASE,0);assert.equal(game.active.type,'PHASE');
+  const before=copy(game);assert.equal(useTool(game,'PHASE').ok,false);assert.deepEqual(game,before);
+});
+
+test('invalid or in-flight tool activation leaves all state and inventory unchanged',()=>{
+  const game=createGame({mode:'endless'});
+  const before=copy(game);assert.equal(useTool(game,'UNKNOWN').ok,false);assert.deepEqual(game,before);
+  startFlow(game,[move('MOVE_DOWN',2),drop]);const running=copy(game);
+  assert.equal(useTool(game,'BOMB').ok,false);assert.deepEqual(game,running);
+  const batch=createGame({mode:'shuhang'}),batchBefore=copy(batch);
+  assert.equal(useTool(batch,'BOMB','missing').ok,false);assert.deepEqual(batch,batchBefore);
+});
+
+test('phase single penetrates walls and lands below sealed cells without overwriting them',()=>{
+  const game=toolFixture('PHASE');game.board[6][4]='J';game.board[14][4]='L';game.board[19][4]='O';
+  const shadow=landingPiece(game,game.active);assert.equal(shadow.y,18);
+  run(game,[move('MOVE_DOWN',6),move('MOVE_RIGHT',1),move('MOVE_LEFT',1),drop]);
+  assert.equal(game.board[18][4],'PHASE');assert.equal(game.board[6][4],'J');assert.equal(game.board[14][4],'L');assert.equal(game.board[19][4],'O');
+  assert.equal(game.score,0);
+});
+
+test('phase settles safely when a flow ends inside a wall and fails on a completely full column',()=>{
+  const game=toolFixture('PHASE');game.board[4][4]='J';run(game,[move('MOVE_DOWN',4)]);
+  assert.equal(game.board[4][4],'J');assert.equal(game.board[5][4],'PHASE');
+  const full=toolFixture('PHASE');for(const row of full.board)row[4]='fixed';const board=copy(full.board);
+  assert.equal(landingPiece(full,full.active),null);run(full,[drop]);assert.equal(full.status,'lost');assert.deepEqual(full.board,board);
+});
+
+test('phase respects side boundaries, skips rotation, and can remain in an empty cell',()=>{
+  const game=toolFixture('PHASE');run(game,[move('MOVE_LEFT',9),a('ROTATE_CW')]);
+  assert.equal(game.board[0][4],'PHASE');assert.equal(game.lastFlow.logs[1].skipped,true);
+  assert.equal(game.board.flat().filter(Boolean).length,1);
+});
+
+test('phase fills a buried single hole, scores normally, earns a tool once and undo reverses the reward',()=>{
+  const game=createGame({mode:'endless'});game.score=900;
+  game.board[19]=Array(10).fill('fixed');game.board[19][4]=null;game.board[17][4]='J';
+  assert.equal(useTool(game,'PHASE').ok,true);run(game,[drop]);
+  assert.equal(game.score,1000);assert.equal(game.lines,1);assert.equal(game.tools.PHASE,1);assert.equal(game.tools.rewarded,1);
+  assert.equal(undoLastPiece(game),true);assert.equal(game.score,900);assert.equal(game.tools.PHASE,0);assert.equal(game.tools.rewarded,0);
+});
+
+for(const [id,obstacle] of [['MOVE_LEFT',{x:3,y:8}],['MOVE_RIGHT',{x:5,y:8}],['MOVE_DOWN',{x:4,y:9}]])
+ test(`bomb explodes on ${id} collision, stops the tail and preserves outside cells`,()=>{
+  const game=toolFixture('BOMB');game.active.x=4;game.active.y=8;game.board[obstacle.y][obstacle.x]='fixed';
+  game.board[6][4]='L';game.board[10][4]='J';const nextId=game.active.id;
+  run(game,[move(id,2),move('MOVE_DOWN',3),drop]);
+  assert.equal(game.lastFlow.reason,'explosion');assert.equal(game.lastFlow.executed,1);assert.equal(game.transition.kind,'explosion');
+  assert.equal(game.transition.area.length,9);assert.equal(game.board[obstacle.y][obstacle.x],null);
+  assert.equal(game.board[6][4],'L');assert.equal(game.board[10][4],'J');assert.equal(game.lines,0);assert.equal(game.score,0);
+  assert.notEqual(game.active.id,nextId);assert.equal(game.board.flat().includes('BOMB'),false);
+ });
+
+for(const [id,x,y] of [['MOVE_LEFT',0,8],['MOVE_RIGHT',9,8],['MOVE_DOWN',4,19]])
+ test(`bomb detonates at the ${id} boundary and clips the blast to the board`,()=>{
+  const game=toolFixture('BOMB');game.active.x=x;game.active.y=y;run(game,[move(id,1)]);
+  assert.equal(game.transition.kind,'explosion');assert.equal(game.transition.area.length,6);
+  assert.ok(game.transition.area.every(c=>c.x>=0&&c.x<10&&c.y>=0&&c.y<20));
+ });
+
+test('multi-cell bomb collision detonates at the last reached cell rather than the starting cell',()=>{
+  const game=toolFixture('BOMB');game.active.y=8;game.board[8][7]='fixed';run(game,[move('MOVE_RIGHT',5)]);
+  assert.equal(game.transition.piece.x,6);assert.equal(game.board[8][7],null);assert.equal(game.moves,1);
+});
+
+test('bomb hard drop and natural flow ending both detonate without leaving an armed solid block',()=>{
+  for(const commands of [[drop],[move('MOVE_LEFT',1)]]){
+    const game=toolFixture('BOMB');game.board[17][3]='L';game.board[17][4]='J';
+    run(game,commands);assert.equal(game.transition.kind,'explosion');assert.equal(game.transition.piece.y,16);
+    assert.equal(game.board[17][3],null);assert.equal(game.board[17][4],null);assert.equal(game.board.flat().includes('BOMB'),false);
+  }
+});
+
+test('classic tool replacement preserves playing/paused state and automatic gravity uses special collision rules',()=>{
+  const game=toolFixture('PHASE','classic');game.speed=1;game.board[1][4]='J';advance(game,1);
+  assert.equal(game.active.y,1);assert.equal(game.board[1][4],'J');assert.equal(game.status,'playing');
+  game.status='paused';assert.equal(useTool(game,'BOMB').ok,true);assert.equal(game.status,'paused');
+  const paused=copy(game);advance(game,30);assert.deepEqual(game,paused);
+  game.status='playing';game.board[1][4]='J';advance(game,1);
+  assert.equal(game.transition.kind,'explosion');assert.equal(game.transition.piece.y,0);assert.equal(game.board[1][4],null);
+  assert.equal(game.status,'playing');
+});
+
+test('classic lateral collision detonates immediately, and a blocked bomb spawn also explodes',()=>{
+  const game=toolFixture('BOMB','classic');game.board[0][5]='J';
+  assert.equal(classicAction(game,move('MOVE_RIGHT',1)).reason,'explosion');assert.equal(game.board[0][5],null);
+  const blocked=createGame({mode:'classic'});blocked.board[0][4]='fixed';assert.equal(useTool(blocked,'BOMB').ok,true);
+  assert.equal(blocked.transition.kind,'explosion');assert.equal(blocked.board[0][4],null);assert.equal(blocked.tools.BOMB,0);
+});
+
+test('endless automatic gravity penetrates with phase and triggers bombs',()=>{
+  const phase=toolFixture('PHASE');phase.fallMode='automatic';phase.speed=1;phase.board[1][4]='J';
+  startFlow(phase,[move('MOVE_LEFT',1),drop]);advance(phase,1);assert.equal(phase.active.y,1);
+  const bomb=toolFixture('BOMB');bomb.fallMode='automatic';bomb.speed=1;bomb.board[1][4]='J';
+  startFlow(bomb,[move('MOVE_LEFT',1),drop]);advance(bomb,1);
+  assert.equal(bomb.lastFlow.reason,'explosion');assert.equal(bomb.lastFlow.executed,0);assert.equal(bomb.board[1][4],null);
+});
+
+test('rewards alternate, cap at four, and pending rewards fill vacancies without loss or duplication',()=>{
+  const game=createGame({mode:'endless'});game.score=4000;game.tools={PHASE:2,BOMB:2,rewarded:4,pending:0,next:4};
+  game.active={type:'I',id:game.active.id,matrix:[[1],[1],[1],[1]],x:4,y:0};
+  for(let y=16;y<20;y++){game.board[y]=Array(10).fill('fixed');game.board[y][4]=null;}
+  run(game,[drop]);assert.equal(game.score,5000);assert.equal(game.tools.pending,1);assert.equal(game.tools.PHASE+game.tools.BOMB,4);
+  assert.equal(useTool(game,'BOMB').ok,true);assert.equal(game.tools.pending,0);assert.equal(game.tools.PHASE,3);assert.equal(game.tools.BOMB,1);
+  assert.equal(useTool(game,'PHASE').ok,true);assert.equal(game.tools.PHASE,2);assert.equal(game.tools.BOMB,1);
+  const fresh=createGame({mode:'endless'});fresh.score=2000;assert.equal(useTool(fresh,'PHASE').ok,true);
+  assert.equal(fresh.tools.PHASE,1);assert.equal(fresh.tools.BOMB,2);assert.equal(fresh.tools.rewarded,2);
+});
+
+test('Shuhang tools keep candidate identity and count, consume now and continue after an explosion',()=>{
+  const game=createGame({mode:'shuhang'}),ids=game.pool.map(p=>p.id);const target=ids[0];
+  assert.equal(useTool(game,'BOMB',target).ok,true);assert.deepEqual(game.pool.map(p=>p.id),ids);assert.equal(game.pool[0].type,'BOMB');assert.equal(game.tools.BOMB,0);
+  const items=ids.map((pieceId,i)=>({pieceId,steps:i===0?[move('MOVE_LEFT',9),move('MOVE_RIGHT',2)]:[]}));
+  assert.equal(startBatch(game,items).ok,true);const executing=copy(game);assert.equal(useTool(game,'PHASE',ids[1]).ok,false);assert.deepEqual(game,executing);
+  assert.equal(stepBatch(game).reason,'explosion');assert.equal(game.batch.cursor,1);assert.equal(game.pool[0].used,true);
+  finishBatch(game);assert.equal(game.layer,2);assert.equal(game.clearedLayers,1);assert.equal(game.pool.length,3);assert.equal(game.tools.BOMB,0);
+});
+
+test('Shuhang phase replaces exactly one candidate and uses the common auto-drop executor',()=>{
+  const game=createGame({mode:'shuhang'}),target=game.pool[1].id;
+  assert.equal(useTool(game,'PHASE',target).ok,true);assert.equal(game.tools.PHASE,0);
+  const ids=[target,...game.pool.filter(p=>p.id!==target).map(p=>p.id)];game.board[10][4]='fixed';
+  assert.equal(startBatch(game,ids.map(pieceId=>({pieceId,steps:[]}))).ok,true);stepBatch(game);
+  assert.equal(game.board[19][4],'PHASE');assert.equal(game.board[10][4],'fixed');assert.equal(game.pool.find(p=>p.id===target).used,true);
+  pauseFlow(game);const paused=copy(game);stepBatch(game);assert.deepEqual(game,paused);resumeFlow(game);finishBatch(game);assert.equal(game.layer,2);
+});

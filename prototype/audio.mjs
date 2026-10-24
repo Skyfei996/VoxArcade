@@ -17,6 +17,7 @@ export const SOUNDS={
   resume:{priority:2,notes:[[330,.08,.06,0,'sine'],[440,.10,.06,.08,'sine']]},
   invalid:{priority:2,notes:[[180,.07,.06,0,'triangle'],[180,.07,.06,.10,'triangle']]},
   won:{priority:5,notes:[[523,.12,.13,0,'sine'],[659,.12,.13,.13,'sine'],[784,.14,.13,.26,'sine'],[1047,.32,.13,.40,'sine'],[1319,.30,.065,.40,'sine']]},
+  explosion:{priority:4,notes:[[110,.24,.18,0,'sawtooth',30],[65,.32,.13,.04,'triangle',25],[900,.10,.045,0,'square',90]]},
   lost:{priority:5,notes:[[311,.17,.13,0,'triangle'],[233,.17,.13,.16,'triangle'],[175,.20,.13,.32,'triangle'],[117,.32,.13,.50,'triangle']]},
 };
 export function commandSound(command,result){
@@ -71,3 +72,4 @@ export class GameAudio{
   set(key,value){this.settings[key]=value;try{localStorage.setItem('vox-audio',JSON.stringify(this.settings));}catch{}if(!value)this.stop(key==='music'?'music':'effects');}
   pause(){this.music(false);this.stop('effects');this.effectUntil=0;this.priority=0;}
 }
+
