@@ -12,11 +12,11 @@ Windows 已配置当前用户登录后自动在后台启动，入口为 `prototy
 
 ## GitHub Pages 与 Codex Cloud
 
-GitHub 仓库：<https://github.com/Skyfei996/VoxArcade>。按钮版游戏已发布至 <https://skyfei996.github.io/VoxArcade/>。`.github/workflows/pages.yml` 只在 GitHub Actions 中手动运行，发布 `main` 分支的游戏文件；推送代码本身不会自动更新网站。Pages 的 Source 已设为 GitHub Actions；后续每次公开发布前按 `AGENTS.md` 单独取得授权。
+GitHub 仓库：<https://github.com/Skyfei996/VoxArcade>。按钮版游戏已发布至 <https://skyfei996.github.io/VoxArcade/>。`.github/workflows/pages.yml` 在 `main` 的游戏文件更新后自动执行，也保留手动运行入口。完成检查后自动提交、推送并合并游戏改动，部署成功且核验线上页面后交付。Pages 的 Source 为 GitHub Actions，普通游戏同步已获长期授权。
 
 发布包只包含游戏入口、PC/手机视图、规则、音效和旋转演示。语音验证页、模型、测试脚本、预览服务和评审截图不会成为公开站点内容。大型语音模型和评审截图也由 `.gitignore` 排除在首版仓库之外，本地文件保留。
 
-本机 GitHub 认证已通过 Git Credential Manager 的设备授权完成，不把 token 放进聊天、文件或命令参数。Codex Cloud 尚需在 Work in → Cloud 中另行连接该 GitHub 仓库并创建环境；本机 Git 凭据不会自动同步到云端。云端环境使用本项目 `AGENTS.md`，运行 `node --test prototype/tests/engine.test.mjs prototype/tests/device-audio.test.mjs` 验证改动；审查云端提交或 PR 后再合并，公开发布仍手动触发。
+本机 GitHub 认证已通过 Git Credential Manager 的设备授权完成，不把 token 放进聊天、文件或命令参数。Codex Cloud 尚需在 Work in → Cloud 中另行连接该 GitHub 仓库并创建环境；本机 Git 凭据不会自动同步到云端。云端环境使用本项目 `AGENTS.md`，运行 `node --test prototype/tests/engine.test.mjs prototype/tests/device-audio.test.mjs` 验证改动；普通游戏改动完成检查后自动合并并同步 Pages。
 
 入口自动识别设备，加载独立的 PC 或手机页面。PC 窄窗口仍保持 PC 视图；手机横屏沿用手机版。电脑浏览器按 F12 切换手机设备后刷新页面可查看手机版，也可访问 `http://localhost:4173/?view=mobile` 强制预览。两端共用游戏规则，分别提供布局及视图交互：PC 单列关卡/后续方块栏与大棋盘，手机首屏棋盘和操作区、可展开编辑的流程抽屉。暂存入口已隐藏。
 
