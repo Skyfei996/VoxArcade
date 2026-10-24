@@ -4,7 +4,13 @@ export const SHAPES = {
   J:[[1,0,0],[1,1,1],[0,0,0]],L:[[0,0,1],[1,1,1],[0,0,0]],
   S:[[0,1,1],[1,1,0],[0,0,0]],Z:[[1,1,0],[0,1,1],[0,0,0]]
 };
-export const COLORS={I:'#95e6d8',O:'#f1ca72',T:'#b9a5eb',J:'#8bb9ec',L:'#f1ac7a',S:'#b9ed8c',Z:'#ef969b',fixed:'#59766a'};
+export const TOOL_TYPES=['PHASE','BOMB'];
+export const TOOL_CAPACITY=4;
+export const TOOL_REWARD_SCORE=1000;
+export const toolName=type=>({PHASE:'穿墙单格',BOMB:'炸弹'}[type]??type);
+export const isTool=type=>TOOL_TYPES.includes(type);
+export const shapeMatrix=type=>isTool(type)?[[1]]:SHAPES[type];
+export const COLORS={I:'#95e6d8',O:'#f1ca72',T:'#b9a5eb',J:'#8bb9ec',L:'#f1ac7a',S:'#b9ed8c',Z:'#ef969b',PHASE:'#c6abff',BOMB:'#ff956d',fixed:'#59766a'};
 export const LEVELS=[
   {id:'P001',title:'最后一条缝',rows:['##....'],pieces:['I'],free:false,goal:'用 I 补齐底行。用完全部方块并清空棋盘。',tags:['入门','固定顺序']},
   {id:'P002',title:'正方形钥匙',rows:['##..##','##..##'],pieces:['O'],free:false,goal:'用 O 同时消除两行。用完全部方块并清空棋盘。',tags:['入门','固定顺序']},
@@ -55,6 +61,11 @@ function fits(game,piece){
   return cells(piece).every(({x,y})=>x>=0&&x<game.width&&y>=0&&y<game.height&&!game.board[y][x]);
 }
 export function landingPiece(game,piece){
+  if(piece?.type==='PHASE'){
+    if(piece.x<0||piece.x>=game.width)return null;
+    for(let y=game.height-1;y>=0;y--)if(!game.board[y][piece.x])return {...piece,y};
+    return null;
+  }
   if(!piece||!fits(game,piece))return null;
   const landing={...piece};
   while(fits(game,{...landing,y:landing.y+1}))landing.y++;
@@ -65,6 +76,7 @@ function rotate(matrix,clockwise){
   return matrix.map((row,y)=>row.map((_,x)=>clockwise?matrix[size-1-x][y]:matrix[x][size-1-y]));
 }
 export function rotationTrace(game,piece,clockwise=true){
+  if(isTool(piece.type))return {attempts:[],piece,ok:false};
   const matrix=rotate(piece.matrix,clockwise),attempts=[];
   for(const offset of [0,-1,1,-2,2]){
     const candidate={...piece,matrix,x:piece.x+offset};
@@ -81,9 +93,9 @@ function shuffledBag(){
 }
 function spawn(game,type,id){
   game.generation++;
-  game.active={type,id,matrix:copy(SHAPES[type]),x:Math.floor((game.width-SHAPES[type].length)/2),y:0};
+  game.active={type,id,matrix:copy(shapeMatrix(type)),x:Math.floor((game.width-shapeMatrix(type).length)/2),y:0};
   game.gravity=0;
-  if(!fits(game,game.active)){game.status='lost';game.active=null;game.message='出生位置被挡住了，换个方案再试。';}
+  if(!isTool(type)&&!fits(game,game.active)){game.status='lost';game.active=null;game.message='出生位置被挡住了，换个方案再试。';}
 }
 function spawnNext(game){
   if(game.mode==='shuhang')return;
@@ -107,6 +119,7 @@ export function createGame(options={}){
     status:mode==='classic'?'playing':'paused',fallMode:mode==='classic'?'automatic':['puzzle','shuhang'].includes(mode)?'manual':options.fallMode??'manual',speed:options.speed??1,
     startLevel:Math.max(1,Math.min(9,Math.trunc(options.startLevel||1))),autoLevel:options.autoLevel??true,undo:null,turnStart:null,
     difficulty:['easy','medium','hard'].includes(options.difficulty)?options.difficulty:'easy',layer:1,clearedLayers:0,batch:null,
+    tools:mode==='puzzle'?null:{PHASE:1,BOMB:1,rewarded:0,pending:0,next:0},
     active:null,pool:[],queue:[],held:null,holdUsed:false,score:0,lines:0,moves:0,elapsed:0,
     gravity:0,generation:0,serial:0,flow:null,lastFlow:null,message:'先编排，点击运行后才执行。'};
   if(mode==='puzzle'){
@@ -115,19 +128,69 @@ export function createGame(options={}){
   }
   if(mode==='shuhang')dealBatch(game);else spawnNext(game);if(mode==='classic'){game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];game.turnStart=snapshot(game);}return game;
 }
+function awardTools(game){
+  if(!game.tools)return;
+  const earned=Math.floor(game.score/TOOL_REWARD_SCORE);
+  game.tools.pending+=Math.max(0,earned-game.tools.rewarded);
+  game.tools.rewarded=Math.max(game.tools.rewarded,earned);
+  while(game.tools.pending>0&&game.tools.PHASE+game.tools.BOMB<TOOL_CAPACITY){
+    game.tools[TOOL_TYPES[game.tools.next%TOOL_TYPES.length]]++;
+    game.tools.next++;game.tools.pending--;
+  }
+}
+export function useTool(game,type,pieceId){
+  if(!game.tools||!isTool(type))return {ok:false,message:'此模式不提供该道具。'};
+  if(game.flow||game.batch||['won','lost'].includes(game.status))return {ok:false,message:'当前不能替换方块，请等待本轮结束。'};
+  if(game.tools[type]<1)return {ok:false,message:'这个道具已用完。'};
+  const candidate=game.mode==='shuhang'?game.pool.find(p=>p.id===pieceId&&!p.used):game.active;
+  if(!candidate)return {ok:false,message:game.mode==='shuhang'?'先选中一个本层候选方块。':'当前没有可替换的方块。'};
+  game.tools[type]--;awardTools(game);
+  game.undo=null;game.turnStart=null;game.transition=null;game.lastFlow=null;game.gravity=0;
+  if(game.mode==='shuhang')candidate.type=type;
+  else{
+    spawn(game,type,candidate.id);
+    game.turnStart=snapshot(game);
+    if(type==='BOMB'&&!fits(game,game.active)){game.active.detonated=true;commit(game);}
+  }
+  game.message=`已消耗${toolName(type)}，原方块已替换。`;
+  return {ok:true,message:game.message};
+}
+function phasePosition(game,piece){
+  if(!game.board[piece.y]?.[piece.x]&&piece.y>=0&&piece.y<game.height)return piece;
+  for(let y=piece.y+1;y<game.height;y++)if(!game.board[y][piece.x])return {...piece,y};
+  for(let y=Math.min(piece.y-1,game.height-1);y>=0;y--)if(!game.board[y][piece.x])return {...piece,y};
+  return null;
+}
+export function blastCells(game,piece){
+  const area=[];
+  for(let y=Math.max(0,piece.y-1);y<=Math.min(game.height-1,piece.y+1);y++)
+    for(let x=Math.max(0,piece.x-1);x<=Math.min(game.width-1,piece.x+1);x++)area.push({x,y});
+  return area;
+}
 function commit(game){
-  const piece=game.active;if(!piece)return;
+  let piece=game.active;if(!piece)return;
+  if(piece.type==='PHASE'){
+    piece=phasePosition(game,piece);
+    if(!piece){game.status='lost';game.active=null;game.message='这一列没有空格，穿墙单格无法固定。';return;}
+    game.active=piece;
+  }
   game.undo=game.mode==='shuhang'?null:game.turnStart;
-  for(const {x,y} of cells(piece))game.board[y][x]=piece.type;
+  let explosion=null;
+  if(piece.type==='BOMB'){
+    if(!piece.detonated){const landing=landingPiece(game,piece);if(landing)piece=landing;}
+    const area=blastCells(game,piece),before=copy(game.board);
+    for(const {x,y} of area)game.board[y][x]=null;
+    explosion={kind:'explosion',area,board:before,piece:copy(piece),rows:[]};
+  }else for(const {x,y} of cells(piece))game.board[y][x]=piece.type;
   const used=game.pool.find(p=>p.id===piece.id);if(used)used.used=true;
   const kept=game.board.filter(row=>row.some(v=>!v)),cleared=game.height-kept.length;
-  game.transition={piece:copy(piece),board:copy(game.board),rows:game.board.flatMap((row,y)=>row.every(Boolean)?[y]:[])};
-  game.score+=LINE_POINTS[cleared]??0;
+  game.transition=explosion??{piece:copy(piece),board:copy(game.board),rows:game.board.flatMap((row,y)=>row.every(Boolean)?[y]:[])};
+  game.score+=explosion?0:LINE_POINTS[cleared]??0;awardTools(game);
   if(game.mode==='classic')game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];
   game.lines+=cleared;
   game.board=[...Array.from({length:cleared},()=>Array(game.width).fill(null)),...kept];
   game.active=null;game.generation++;game.holdUsed=false;
-  game.message=cleared?`消除 ${cleared} 行。`:'方块已固定在当前位置。';
+  game.message=explosion?'炸弹引爆，清除周围 3×3 范围。':cleared?`消除 ${cleared} 行。`:'方块已固定在当前位置。';
   if(game.mode==='puzzle'&&game.pool.every(p=>p.used)){
     game.status=game.board.every(row=>row.every(v=>!v))?'won':'lost';
     game.message=game.status==='won'?'全部方块已用完，棋盘全部清空！':'方块已用完，棋盘还没清空。换个方案再试。';
@@ -138,8 +201,9 @@ function endFlow(game,reason,commitActive=true){
   const flow=game.flow;if(!flow)return;
   const owned=!!game.active&&game.active.id===flow.pieceId;
   if(commitActive&&owned)commit(game);
+  if(commitActive&&owned&&game.transition?.kind==='explosion')reason='explosion';
   if(!['won','lost'].includes(game.status))game.status='paused';
-  const messages={complete:'流程执行完毕，方块已固定；流程已清空。',downBlocked:'下方受阻，剩余步骤已终止，方块已固定。',sideBlocked:'接地后横移受阻，剩余步骤已终止，方块已固定。',hardDrop:'已落地提交；流程已清空。',gravity:'自动下落遇阻，剩余步骤已终止。',hold:'已暂存交换；流程已清空。',invalid:`${flow.logs.at(-1)?.message??'指令无法执行。'} 本轮流程已终止。`,stale:'方块已更换，旧流程已终止。'};
+  const messages={explosion:'炸弹碰撞引爆，后续步骤已终止。',complete:'流程执行完毕，方块已固定；流程已清空。',downBlocked:'下方受阻，剩余步骤已终止，方块已固定。',sideBlocked:'接地后横移受阻，剩余步骤已终止，方块已固定。',hardDrop:'已落地提交；流程已清空。',gravity:'自动下落遇阻，剩余步骤已终止。',hold:'已暂存交换；流程已清空。',invalid:`${flow.logs.at(-1)?.message??'指令无法执行。'} 本轮流程已终止。`,stale:'方块已更换，旧流程已终止。'};
   const message=game.status==='won'?game.message:game.status==='lost'?`${messages[reason]??'本轮已结束。'} ${game.message}`:messages[reason]??reason;
   game.lastFlow={reason,executed:flow.cursor,logs:copy(flow.logs),message};
   game.flow=null;game.gravity=0;game.message=message;
@@ -202,6 +266,7 @@ export function dispatch(game,command){
   }
   if(!game.active)return {ok:false,message:'本轮需要先选择一个形状。'};
   if(game.flow.pieceId!==game.active.id)return {ok:false,reason:'stale',message:'方块已更换。'};
+  if(isTool(game.active.type))return toolAction(game,command);
   if(id==='HOLD'){
     if(game.mode!=='endless'||game.holdUsed)return {ok:false,message:'当前不能暂存。'};
     const type=game.active.type,held=game.held;game.held=type;
@@ -237,6 +302,38 @@ export function dispatch(game,command){
   }
   return {ok:false,message:'没有这个预制指令。'};
 }
+function toolAction(game,command){
+  const piece=game.active,{id,params={}}=command;
+  const detonate=()=>{piece.detonated=true;return {ok:true,terminal:true,reason:'explosion',message:'碰撞引爆炸弹！'};};
+  if(piece.type==='BOMB'&&!fits(game,piece))return detonate();
+  if(id.startsWith('ROTATE'))return {ok:true,skipped:true,message:'单格道具无需旋转。'};
+  if(id==='HARD_DROP'){
+    game.moves++;
+    const landing=landingPiece(game,piece);
+    if(landing)Object.assign(piece,landing);
+    return piece.type==='BOMB'?detonate():{ok:true,terminal:true,reason:'hardDrop',message:'穿墙单格落入本列最低空格。'};
+  }
+  if(!['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN'].includes(id))return {ok:false,message:'道具只能左右移动、下移或落地。'};
+  const count=params.cells??1,max=id==='MOVE_DOWN'?20:9;
+  if(!Number.isInteger(count)||count<1||count>max)return {ok:false,message:`格数须为 1–${max} 的整数。`};
+  const dx=id==='MOVE_LEFT'?-1:id==='MOVE_RIGHT'?1:0,dy=id==='MOVE_DOWN'?1:0;
+  game.moves++;
+  if(piece.type==='PHASE'&&dx&&(piece.x+dx*count<0||piece.x+dx*count>=game.width))return {ok:true,skipped:true,message:'已到棋盘边界，本次横移不生效。'};
+  for(let step=0;step<count;step++){
+    const next={...piece,x:piece.x+dx,y:piece.y+dy};
+    const inside=next.x>=0&&next.x<game.width&&next.y>=0&&next.y<game.height;
+    if(!inside||piece.type==='BOMB'&&!fits(game,next)){
+      if(piece.type==='BOMB')return detonate();
+      return dy?{ok:true,terminal:true,reason:'downBlocked',message:'穿墙单格到达底边。'}:{ok:true,skipped:true,message:'已到棋盘边界。'};
+    }
+    piece.x=next.x;piece.y=next.y;
+  }
+  return {ok:true,message:`${toolName(piece.type)}${dx<0?'左移':dx>0?'右移':'下移'} ${count} 格`};
+}
+function gravityFits(game,piece){
+  if(piece.type==='PHASE')return piece.y+1<game.height;
+  return fits(game,{...piece,y:piece.y+1});
+}
 export function stepFlow(game){
   const flow=game.flow;
   if(!flow||flow.status!=='running'||game.status!=='playing')return {ok:false,message:'流程未运行。'};
@@ -263,8 +360,8 @@ export function advance(game,seconds){
     const interval=1/game.speed;
     while(game.gravity>=interval&&game.active){
       game.gravity-=interval;
-      if(fits(game,{...game.active,y:game.active.y+1}))game.active.y++;
-      else{game.transition=null;commit(game);break;}
+      if(gravityFits(game,game.active))game.active.y++;
+      else{game.transition=null;if(game.active.type==='BOMB')game.active.detonated=true;commit(game);break;}
     }
     return;
   }
@@ -273,7 +370,7 @@ export function advance(game,seconds){
   if(game.fallMode!=='automatic'||!game.active)return;
   game.gravity+=seconds;const interval=1/game.speed;
   while(game.gravity>=interval&&game.active&&game.flow){
-    if(!fits(game,{...game.active,y:game.active.y+1})){endFlow(game,'gravity');break;}
+    if(!gravityFits(game,game.active)){if(game.active.type==='BOMB')game.active.detonated=true;endFlow(game,game.active.type==='BOMB'?'explosion':'gravity');break;}
     game.active.y++;game.gravity-=interval;
   }
 }

@@ -1,5 +1,5 @@
-import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES} from './engine.mjs?v=puzzle-redesign-20261024';
-import {GameAudio,commandSound} from './audio.mjs';
+import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=tools-20261024';
+import {GameAudio,commandSound} from './audio.mjs?v=tools-20261024';
 import {sizeBoard,drawGrid} from './board-view.mjs';
 const {view}=await import(document.body.dataset.view==='mobile'?'./mobile-view.mjs':'./desktop-view.mjs');
 const audio=new GameAudio();
@@ -13,6 +13,7 @@ const ui={plan:[],wait:0,gravityTime:0,animation:null,step:null,quantity:1,lastF
 let ruleToastTimer;
 const running=()=>game.flow?.status==='running';
 function miniature(type){
+  if(isTool(type))return `<span class="tool-glyph ${type==='PHASE'?'phase-glyph':'bomb-glyph'}" aria-hidden="true">${type==='PHASE'?'◇':'●'}</span>`;
   const matrix=SHAPES[type];if(!matrix)return '<span class="muted">—</span>';
   const rows=matrix.filter(row=>row.some(Boolean));
   return `<span class="mini-piece" style="grid-template-columns:repeat(${rows[0].length},7px);--piece-color:${COLORS[type]}" aria-hidden="true">${rows.flatMap(row=>row.map(v=>`<i class="${v?'':'empty'}"></i>`)).join('')}</span>`;
@@ -87,7 +88,7 @@ function append(command){
 function draftPiece(){
   if(game.mode==='shuhang'&&(game.flow||ui.animation||game.status==='lost'))return null;
   const type=game.mode==='shuhang'?game.pool.find(piece=>piece.id===ui.batchSelected&&!piece.used)?.type:ui.plan.find(step=>step.id==='SELECT_PIECE')?.params.type;
-  return !game.active&&type?{type,matrix:SHAPES[type],x:Math.floor((game.width-SHAPES[type].length)/2),y:0}:null;
+  return !game.active&&type?{type,matrix:shapeMatrix(type),x:Math.floor((game.width-shapeMatrix(type).length)/2),y:0}:null;
 }
 function settleUI(){
   stopTimer();ui.plan=[];
@@ -107,15 +108,15 @@ function executeNext(){
 }
 function beginAnimation(next,target,duration){
   const from=game.active??draftPiece();
-  const arrivalSound=next.transition?next.mode==='classic'||['hardDrop','downBlocked','sideBlocked','gravity'].includes(next.lastFlow?.reason)?'land':'lock':null;
-  ui.animation={next,from,target,elapsed:0,motion:duration,rows:next.transition?.rows??[],clearPlayed:false,arrivalPlayed:false,arrivalSound};
+  const arrivalSound=next.transition?.kind==='explosion'?'explosion':next.transition?next.mode==='classic'||['hardDrop','downBlocked','sideBlocked','gravity'].includes(next.lastFlow?.reason)?'land':'lock':null;
+  ui.animation={next,from,target,elapsed:0,motion:duration,rows:next.transition?.rows??[],explosion:next.transition?.kind==='explosion',clearPlayed:false,arrivalPlayed:false,arrivalSound};
   render();
 }
 function animate(milliseconds){
   const animation=ui.animation;animation.elapsed+=milliseconds;
   if(animation.elapsed>=animation.motion&&!animation.arrivalPlayed){animation.arrivalPlayed=true;if(animation.arrivalSound)audio.effect(animation.arrivalSound);}
   if(animation.rows.length&&animation.elapsed>=animation.motion+70&&!animation.clearPlayed){animation.clearPlayed=true;audio.effect('clear',animation.rows.length);}
-  if(animation.elapsed<animation.motion+(animation.rows.length?660:0))return;
+  if(animation.elapsed<animation.motion+(animation.explosion?480:animation.rows.length?660:0))return;
   game=animation.next;ui.animation=null;
   if(!game.flow)settleUI();else render();
 }
@@ -163,11 +164,34 @@ function renderLevels(){
   $('missionIndex').textContent=`${String(game.levelIndex+1).padStart(2,'0')} / ${total}`;
   $('completedCount').textContent=`${completed.size} / ${LEVELS.length}`;
 }
+function renderTools(){
+  $('toolShelf').hidden=!game.tools;
+  if(!game.tools)return;
+  for(const type of ['PHASE','BOMB']){
+    const button=$('tool'+type);button.querySelector('.tool-count').textContent=`×${game.tools[type]}`;
+    button.setAttribute('aria-label',`${toolName(type)}，剩余 ${game.tools[type]} 个，点击立即替换当前方块`);
+    button.disabled=game.tools[type]<1||!!game.flow||!!game.batch||!!ui.animation||tourActive||['won','lost'].includes(game.status)||game.mode==='shuhang'&&!ui.batchSelected;
+  }
+  const remaining=TOOL_REWARD_SCORE-game.score%TOOL_REWARD_SCORE;
+  $('toolProgress').textContent=game.tools.pending?`待领 ${game.tools.pending} 个`:`再得 ${remaining} 分`;
+  $('toolProgress').title=`每 ${TOOL_REWARD_SCORE} 分交替获得道具，最多存 ${TOOL_CAPACITY} 个；满额奖励保留。点击立即扣除并替换当前方块。`;
+}
+function activateTool(type){
+  if(ui.animation||tourActive)return;
+  const next=copy(game),result=useTool(next,type,ui.batchSelected);
+  if(!result.ok){notify(result.message,true);return;}
+  closeRotationPreview();ui.plan=[];ui.step=null;stopTimer();
+  if(game.mode==='shuhang'){
+    const draft=ui.batchDrafts.find(item=>item.pieceId===ui.batchSelected);if(draft)draft.steps=[];
+  }
+  audio.unlock();audio.effect('select');notify(result.message);
+  if(next.transition)beginAnimation(next,next.transition.piece,view.motion);else{game=next;render();}
+}
 function renderPieces(){
   if(game.mode==='shuhang'){
     document.querySelector('.piece-bar').hidden=false;
     $('poolLabel').textContent='本层候选';
-    $('pieceRack').innerHTML=game.pool.map((piece,index)=>{const order=ui.batchDrafts.findIndex(item=>item.pieceId===piece.id);return `<button class="piece-chip ${ui.batchSelected===piece.id?'draft-selected':''} ${piece.used?'used':''}" data-batch-piece="${piece.id}" aria-label="候选 ${index+1}：${piece.type}${order>=0?`，第 ${order+1} 个执行`:''}" ${game.flow||ui.animation||game.status==='lost'?'disabled':''}>${miniature(piece.type)}<b>${order<0?'待选':`第${order+1}块`}</b></button>`;}).join('');
+    $('pieceRack').innerHTML=game.pool.map((piece,index)=>{const order=ui.batchDrafts.findIndex(item=>item.pieceId===piece.id);return `<button class="piece-chip ${ui.batchSelected===piece.id?'draft-selected':''} ${piece.used?'used':''}" data-batch-piece="${piece.id}" aria-label="候选 ${index+1}：${toolName(piece.type)}${order>=0?`，第 ${order+1} 个执行`:''}" ${game.flow||ui.animation||game.status==='lost'?'disabled':''}>${miniature(piece.type)}<b>${order<0?'待选':`第${order+1}块`}</b></button>`;}).join('');
     $('pieceRemaining').textContent=`已选 ${ui.batchDrafts.length}/${game.pool.length}`;
     $('orderNote').hidden=true;$('nextPieces').innerHTML='';$('heldPiece').innerHTML='';return;
   }
@@ -183,7 +207,7 @@ function renderPieces(){
     $('pieceRemaining').textContent=game.fallMode==='automatic'?`${game.speed} 格 / 秒`:'手动';
   }
   $('orderNote').hidden=true;
-  $('nextPieces').innerHTML=`${game.active?`<div class="queue-item current" aria-label="当前方块 ${game.active.type}"><small>当前</small>${miniature(game.active.type)}</div>`:''}${game.queue.slice(0,4).map((type,index)=>`<div class="queue-item" aria-label="后续第 ${index+1} 块 ${type}">${miniature(type)}</div>`).join('')}`;$('heldPiece').innerHTML=game.held?miniature(game.held):'<span>—</span>';
+  $('nextPieces').innerHTML=`${game.active?`<div class="queue-item current" aria-label="当前方块 ${toolName(game.active.type)}"><small>当前</small>${miniature(game.active.type)}</div>`:''}${game.queue.slice(0,4).map((type,index)=>`<div class="queue-item" aria-label="后续第 ${index+1} 块 ${type}">${miniature(type)}</div>`).join('')}`;$('heldPiece').innerHTML=game.held?miniature(game.held):'<span>—</span>';
 }
 function renderBatchPlan(){
   const locked=!!game.flow||!!ui.animation||game.status==='lost';
@@ -250,6 +274,7 @@ function render(){
   $('holdButton').hidden=true;
   $('commandHint').textContent=game.mode==='shuhang'?(game.flow?'整批执行中，方案锁定':ui.batchSelected?`为当前选中块添加动作`:'先选择候选方块'):game.mode==='classic'?'点击立即操作 · 自动下落':running()?'正在执行，不能插入动作':'点击按钮，只添加步骤';
   const shownPiece=game.active??draftPiece();
+  renderTools();
   $('boardStatus').textContent=game.mode==='shuhang'?`第 ${game.layer} 层 · ${game.status==='lost'?'本局结束':game.flow?`执行第 ${game.batch.cursor+1}/${game.pool.length} 块`:'整批规划中'}`:game.mode==='classic'?`常规模式 · ${game.status==='playing'?'进行中':game.status==='paused'?'已暂停':'已结束'}`:running()?`运行中 · 第 ${(game.flow?.cursor??0)+1} 步`:game.status==='won'?'关卡完成':game.status==='lost'?'本次结束':game.flow?'流程暂停':shownPiece?`待编排 · ${shownPiece.type} 方块`:'待编排 · 先选一个形状';
   $('pauseButton').hidden=game.mode!=='classic';$('pauseButton').disabled=['won','lost'].includes(game.status);$('pauseButton').innerHTML=icon(game.status==='paused'?'play':'pause');
   $('pauseButton').setAttribute('aria-label',game.status==='paused'?'继续游戏':'暂停游戏');
@@ -263,10 +288,10 @@ function render(){
   $('boardNote').textContent='流程结束即固定，悬空也会成为下一块的障碍。';
   $('executionToast').hidden=!running();$('executionProgress').textContent=running()?`正在执行 ${game.flow.cursor} / ${ui.plan.length} 步`:'';
   document.querySelectorAll('[data-command]').forEach(button=>{
-    button.disabled=!!game.flow||!!ui.animation||['won','lost'].includes(game.status)||game.mode==='classic'&&game.status!=='playing'||game.mode==='shuhang'&&!ui.batchSelected;
+    button.disabled=button.dataset.command.startsWith('ROTATE')&&isTool(shownPiece?.type)||!!game.flow||!!ui.animation||['won','lost'].includes(game.status)||game.mode==='classic'&&game.status!=='playing'||game.mode==='shuhang'&&!ui.batchSelected;
     const item=COMMANDS.find(c=>c.id===button.dataset.command);button.querySelector('.command-detail').textContent=item.parameter?`${game.mode==='classic'?1:ui.quantity} 格`:item.id==='HARD_DROP'?(game.mode==='classic'?'立即落地固定':'运行并提交'):'旋转方块';
   });
-  $('rotationPreviewButton').disabled=!shownPiece||!!game.flow||!!ui.animation||['won','lost'].includes(game.status);
+  $('rotationPreviewButton').disabled=isTool(shownPiece?.type)||!shownPiece||!!game.flow||!!ui.animation||['won','lost'].includes(game.status);
   if($('rotationPreviewButton').disabled)closeRotationPreview();
   renderLevels();renderPieces();renderPlan();renderResult();view.render(game,game.mode==='shuhang'?ui.batchDrafts:ui.plan);
   if(game.mode==='shuhang')$('executionProgress').textContent=game.flow?`第 ${game.layer} 层 · 执行第 ${game.batch.cursor+1}/${game.pool.length} 块`:'';
@@ -305,7 +330,7 @@ function draw(){
   const metrics=sizeBoard(canvas,$('boardStage'),game.width,game.height);
   drawGrid(ctx,game.width,game.height,metrics);
   drawCoordinates();
-  const animation=ui.animation,phase=!animation?'idle':animation.elapsed<animation.motion?'move':animation.rows.length&&animation.elapsed<animation.motion+480?'clear':animation.rows.length?'collapse':'move';
+  const animation=ui.animation,phase=!animation?'idle':animation.elapsed<animation.motion?'move':animation.explosion?'blast':animation.rows.length&&animation.elapsed<animation.motion+480?'clear':animation.rows.length?'collapse':'move';
   canvas.dataset.phase=phase;
   const board=animation&&phase!=='move'?animation.next.transition.board:game.board;
   const progress=phase==='collapse'?Math.min(1,(animation.elapsed-animation.motion-480)/180):0;
@@ -313,7 +338,8 @@ function draw(){
     const type=board[y][x];if(!type)continue;
     if(phase==='collapse'&&animation.rows.includes(y))continue;
     const shift=phase==='collapse'?animation.rows.filter(row=>row>y).length*progress:0;
-    tile(x,y+shift,phase==='clear'&&animation.rows.includes(y)&&Math.floor((animation.elapsed-animation.motion)/80)%2===0?'#fff5bd':COLORS[type]);
+    if(phase==='blast'&&animation.next.transition.area.some(c=>c.x===x&&c.y===y))ctx.globalAlpha=Math.max(0,1-(animation.elapsed-animation.motion)/350);
+    tile(x,y+shift,phase==='clear'&&animation.rows.includes(y)&&Math.floor((animation.elapsed-animation.motion)/80)%2===0?'#fff5bd':COLORS[type]);ctx.globalAlpha=1;
   }
   let piece=game.active??draftPiece();
   if(animation&&phase==='move'){
@@ -328,7 +354,24 @@ function draw(){
     const landing=landingPiece(game,animation?.target??piece);
     if(landing&&landing.y>piece.y)for(const {x,y} of cells(landing))ghostTile(x,y);
   }
-  if(piece)for(const {x,y} of cells(preview??piece))tile(x,y,COLORS[piece.type]);
+  if(piece)for(const {x,y} of cells(preview??piece)){
+    if(piece.type==='PHASE')ctx.globalAlpha=.45+.55*(.5+.5*Math.sin(performance.now()/130));
+    tile(x,y,COLORS[piece.type]);ctx.globalAlpha=1;
+    if(piece.type==='BOMB'){
+      ctx.fillStyle='#352d2a';ctx.beginPath();ctx.arc(x*40+20,y*40+23,11,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='#fff6c4';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x*40+22,y*40+13);ctx.quadraticCurveTo(x*40+22,y*40+4,x*40+30,y*40+8);ctx.stroke();
+      ctx.fillStyle=Math.sin(performance.now()/90)>0?'#fff5ab':'#ff5c32';ctx.beginPath();ctx.arc(x*40+30,y*40+8,3,0,Math.PI*2);ctx.fill();
+    }
+  }
+  if(phase==='blast'){
+    const effect=animation.next.transition,p=(animation.elapsed-animation.motion)/480;
+    ctx.save();ctx.globalAlpha=1-p;
+    for(const {x,y} of effect.area){ctx.fillStyle=p<.22?'#fff7c9':'#ff9d45';ctx.fillRect(x*40+2,y*40+2,36,36);}
+    const cx=(effect.piece.x+.5)*40,cy=(effect.piece.y+.5)*40;
+    ctx.strokeStyle='#ffe0a2';ctx.lineWidth=5*(1-p);ctx.beginPath();ctx.arc(cx,cy,12+p*65,0,Math.PI*2);ctx.stroke();
+    for(let i=0;i<8;i++){const angle=i*Math.PI/4,d=14+p*63;ctx.fillStyle=i%2?'#ffd68c':'#ff835d';ctx.fillRect(cx+Math.cos(angle)*d-3,cy+Math.sin(angle)*d-3,6*(1-p),6*(1-p));}
+    ctx.restore();
+  }
   const step=$('activeStep');step.hidden=!ui.step;
   if(ui.step){
     step.textContent=ui.step.text;
@@ -341,7 +384,7 @@ function draw(){
       step.style.left=`${Math.max(6,Math.min(stage.width-step.offsetWidth-6,x))}px`;step.style.top=`${Math.max(6,Math.min(stage.height-step.offsetHeight-6,y))}px`;
     }
   }
-  canvas.setAttribute('aria-label',`${game.width}列${game.height}行棋盘，已消除${game.lines}行，${piece?`当前方块${piece.type}`:game.mode==='shuhang'?`第${game.layer}层规划中，不预览方块`:'等待选择形状'}${preview?'，正在临时预览旋转结果':''}`);
+  canvas.setAttribute('aria-label',`${game.width}列${game.height}行棋盘，已消除${game.lines}行，${piece?`当前方块${toolName(piece.type)}`:game.mode==='shuhang'?`第${game.layer}层规划中，不预览方块`:'等待选择形状'}${preview?'，正在临时预览旋转结果':''}`);
 }
 const commandOrder=['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN','ROTATE_CCW','ROTATE_CW','HARD_DROP'];
 $('commandGrid').innerHTML=commandOrder.map(id=>COMMANDS.find(item=>item.id===id)).map(item=>`<button class="command-button" data-command="${item.id}"><span class="command-symbol" aria-hidden="true">${item.symbol}</span><span class="command-label">${item.label}<small class="command-detail">${item.parameter?'1 格':item.id==='HARD_DROP'?'提交本轮':'旋转方块'}</small></span></button>`).join('');
@@ -461,6 +504,7 @@ function startTour(){
   tourSteps=[
     ['.mode-switch','选择玩法','解谜闯关用给定方块清空棋盘；无尽方块逐块编排；常规模式即时操作并自动下落；舒航模式整层规划、整批执行。'],
     ...(!classic&&game.mode==='puzzle'?[[mobile?'#openLevels':'.level-section','选择关卡','默认从第一关开始。十五关分为简单、中等、困难、特困难，可随时选关；用完全部方块并清空棋盘才算通关。']]:[]),
+    ...(!['puzzle','shuhang'].includes(game.mode)?[['#toolShelf','道具替换当前方块','点击立即扣除道具、取消当前块并在顶部换上道具块。穿墙单格可以穿过堆积，落地填本列最低空格；炸弹碰到障碍或边界就引爆周围 3×3。单格无需旋转。每 1000 分交替奖励，最多存四个，满额奖励保留；清空或换道具不退款。']]:[]),
     ['#scoreValue','查看得分','得分在棋盘侧边显示，消行后会累积。'],
     ['#restartButton','重新开始','重置当前棋盘、分数和流程，重新挑战当前关卡或本局。'],
     ['#rotationPreviewButton','旋转预览','眼睛图标是预览入口。展开后点顺时针或逆时针，临时查看真实旋转结果，不添加动作。关闭或离开后恢复原样。常规模式预览前会暂停。'],
@@ -483,6 +527,7 @@ function startTour(){
     ['#commandGrid','只规划左右移动和旋转','先选一块，再添加左右移动、顺转或逆转。没有下移或单块落地按钮；不加动作表示按初始方向直接落地。棋盘上的所选方块保持出生位置和初始方向，请自己推演前面方块对后面的影响。'],
     [mobile?'#flowPanel':'#planList','检查整层方案','这里逐块列出操作，↑ 调整出场顺序，× 删除动作或取消某块安排。全部候选都安排完，才能整批提交。'],
     ['#runPlan','整批提交','方案锁定后逐块执行：移动和旋转 → 自动落地固定 → 消行 → 下一块。执行期间不能修改；暂停只冻结进度。'],
+    ['#toolShelf','道具占用候选名额','先选中一个候选，再点道具：立即扣一个并替换该候选、清除它的旧动作，仍占本层一个名额。单格无需旋转。整批执行时穿墙或碰撞引爆，之后继续下一块；点击后取消安排也不退道具。每 1000 分交替奖励道具。'],
     ['#layerStatus','挑战更高层','整批存活就进入下一层并给出新候选；方块出生溢出时结束，显示到达层数、通过层数和得分。没有单块撤回，规划后再提交。'],
     ['#scoreValue','得分','得分在侧边显示，会跨层累计。']
   ];
@@ -535,7 +580,11 @@ function initBoardLayout(){
   const stage=$('boardStage'),layout=document.createElement('div'),rail=document.createElement('aside');
   layout.className='board-layout';rail.className='board-rail';rail.setAttribute('aria-label','得分与游戏工具');
   stage.before(layout);layout.append(stage,rail);
-  rail.append(document.querySelector('.score-banner'),document.querySelector('.play-actions'),$('classicControls'),$('batchControls'),document.querySelector('.piece-bar'),$('endlessNote'));
+  const tools=document.createElement('section');tools.id='toolShelf';tools.className='tool-shelf';tools.setAttribute('aria-label','道具');tools.hidden=true;
+  tools.innerHTML='<button id="toolPHASE" class="tool-item" title="立即替换当前方块，穿墙填洞"><span class="tool-glyph phase-glyph" aria-hidden="true">◇</span><span>穿墙单格</span><b class="tool-count">×1</b></button><button id="toolBOMB" class="tool-item" title="立即替换当前方块，碰撞引爆 3×3"><span class="tool-glyph bomb-glyph" aria-hidden="true">●</span><span>炸弹</span><b class="tool-count">×1</b></button><small id="toolProgress"></small>';
+  // Bind before the initial render; both device views use the same shelf.
+  tools.querySelector('#toolPHASE').onclick=()=>activateTool('PHASE');tools.querySelector('#toolBOMB').onclick=()=>activateTool('BOMB');
+  rail.append(document.querySelector('.score-banner'),tools,document.querySelector('.play-actions'),$('classicControls'),$('batchControls'),document.querySelector('.piece-bar'),$('endlessNote'));
   const quantityLabel=document.querySelector('.quantity-row label');quantityLabel.classList.add('move-quantity');rail.insertBefore(quantityLabel,$('classicControls'));
   document.body.append($('rotationPreviewMenu'));
   if(view.name==='mobile'){
