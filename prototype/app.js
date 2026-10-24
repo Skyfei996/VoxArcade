@@ -17,7 +17,10 @@ function miniature(type){
   const rows=matrix.filter(row=>row.some(Boolean));
   return `<span class="mini-piece" style="grid-template-columns:repeat(${rows[0].length},7px);--piece-color:${COLORS[type]}" aria-hidden="true">${rows.flatMap(row=>row.map(v=>`<i class="${v?'':'empty'}"></i>`)).join('')}</span>`;
 }
-function notify(message,error=false){$('feedbackText').textContent=message;$('feedback').classList.toggle('error',error);if(error&&!['won','lost'].includes(game.status))audio.effect('invalid');}
+function notify(message,error=false){
+  $('feedbackText').textContent=message;$('feedback').classList.toggle('error',error);
+  if(error){showRuleToast(message);if(!['won','lost'].includes(game.status))audio.effect('invalid');}
+}
 function showRuleToast(message){
   const toast=$('ruleToast');toast.textContent=message;toast.hidden=false;
   clearTimeout(ruleToastTimer);ruleToastTimer=setTimeout(()=>toast.hidden=true,2600);
@@ -155,22 +158,24 @@ function updateSpeedControls(){
 function renderLevels(){
   $('levelsList').innerHTML=['简单','中等','困难','特困难'].map(difficulty=>`<h3 class="level-group">${difficulty}</h3>${LEVELS.map((level,index)=>({level,index})).filter(({level})=>level.difficulty===difficulty).map(({level,index})=>`<button class="level-button ${index===game.levelIndex?'active':''} ${completed.has(index)?'done':''}" data-level="${index}" aria-label="第${index+1}关 ${level.title} ${difficulty}" aria-current="${index===game.levelIndex?'step':'false'}"><span>${String(index+1).padStart(2,'0')}</span><b>${level.title}</b><small>${difficulty}</small>${completed.has(index)?icon('check'):index===game.levelIndex?icon('arrow'):''}</button>`).join('')}`).join('');
   const level=LEVELS[game.levelIndex],total=String(LEVELS.length).padStart(2,'0');
-  $('levelTitle').textContent=level.title;$('levelGoal').textContent=`${level.difficulty} · ${level.goal}`;
+  $('levelTitle').textContent=level.title;$('levelGoal').textContent='用完方块，清空棋盘';$('levelGoal').title=level.goal;
   $('levelTags').innerHTML=level.tags.map(tag=>`<span>${tag}</span>`).join('');
   $('missionIndex').textContent=`${String(game.levelIndex+1).padStart(2,'0')} / ${total}`;
   $('completedCount').textContent=`${completed.size} / ${LEVELS.length}`;
 }
 function renderPieces(){
   if(game.mode==='shuhang'){
+    document.querySelector('.piece-bar').hidden=false;
     $('poolLabel').textContent='本层候选';
     $('pieceRack').innerHTML=game.pool.map((piece,index)=>{const order=ui.batchDrafts.findIndex(item=>item.pieceId===piece.id);return `<button class="piece-chip ${ui.batchSelected===piece.id?'draft-selected':''} ${piece.used?'used':''}" data-batch-piece="${piece.id}" aria-label="候选 ${index+1}：${piece.type}${order>=0?`，第 ${order+1} 个执行`:''}" ${game.flow||ui.animation||game.status==='lost'?'disabled':''}>${miniature(piece.type)}<b>${order<0?'待选':`第${order+1}块`}</b></button>`;}).join('');
     $('pieceRemaining').textContent=`已选 ${ui.batchDrafts.length}/${game.pool.length}`;
     $('orderNote').hidden=true;$('nextPieces').innerHTML='';$('heldPiece').innerHTML='';return;
   }
   const level=LEVELS[game.levelIndex],draftType=ui.plan.find(command=>command.id==='SELECT_PIECE')?.params.type;
+  document.querySelector('.piece-bar').hidden=!['puzzle','shuhang'].includes(game.mode);
   $('poolLabel').textContent=game.mode==='puzzle'?`剩余库存 · ${level.free?'自由排序':'固定顺序'}`:'当前方块';
   if(game.mode==='puzzle'){
-    $('pieceRack').innerHTML=level.free?inventory(game).map(({type,count})=>`<button class="piece-chip ${count?'':'used'} ${draftType===type?'draft-selected':''} ${game.active?.type===type?'current':''}" data-shape="${type}" aria-label="${type} 方块，剩余 ${count} 个" ${!count||!!game.active||!!game.flow?'disabled':''}>${miniature(type)}<b>×${count}</b></button>`).join(''):
+    $('pieceRack').innerHTML=level.free?inventory(game).sort((a,b)=>Number(b.type===(game.active?.type??draftType))-Number(a.type===(game.active?.type??draftType))).map(({type,count})=>`<button class="piece-chip ${count?'':'used'} ${draftType===type?'draft-selected':''} ${game.active?.type===type?'current':''}" data-shape="${type}" aria-label="${type} 方块，剩余 ${count} 个" ${!count||!!game.active||!!game.flow?'disabled':''}>${miniature(type)}<b>×${count}</b></button>`).join(''):
       game.pool.map((piece,index)=>({...piece,order:index+1})).filter(piece=>!piece.used).map((piece,index)=>`<button class="piece-chip queue-chip ${index===0?'current':''}" data-fixed="true" aria-label="第 ${piece.order} 块：${piece.type}，固定顺序">${miniature(piece.type)}<b>${piece.order}</b></button>`).join('');
     $('pieceRemaining').textContent=`未用 ${game.pool.filter(p=>!p.used).length}`;
   }else{
@@ -178,7 +183,7 @@ function renderPieces(){
     $('pieceRemaining').textContent=game.fallMode==='automatic'?`${game.speed} 格 / 秒`:'手动';
   }
   $('orderNote').hidden=true;
-  $('nextPieces').innerHTML=game.queue.slice(0,5).map(miniature).join('');$('heldPiece').innerHTML=game.held?miniature(game.held):'<span>—</span>';
+  $('nextPieces').innerHTML=`${game.active?`<div class="queue-item current" aria-label="当前方块 ${game.active.type}"><small>当前</small>${miniature(game.active.type)}</div>`:''}${game.queue.slice(0,4).map((type,index)=>`<div class="queue-item" aria-label="后续第 ${index+1} 块 ${type}">${miniature(type)}</div>`).join('')}`;$('heldPiece').innerHTML=game.held?miniature(game.held):'<span>—</span>';
 }
 function renderBatchPlan(){
   const locked=!!game.flow||!!ui.animation||game.status==='lost';
@@ -229,11 +234,11 @@ function render(){
   for(const selector of ['.mission-copy','.level-section','.thinking-note'])document.querySelector(selector).hidden=game.mode!=='puzzle';
   $('shuhangMode').classList.toggle('active',game.mode==='shuhang');$('shuhangMode').setAttribute('aria-pressed',String(game.mode==='shuhang'));
   $('batchControls').hidden=game.mode!=='shuhang';$('batchDifficulty').value=game.difficulty;$('batchDifficulty').disabled=!!game.flow||!!ui.animation;
-  $('layerStatus').textContent=`第 ${game.layer} 层 · 已过 ${game.clearedLayers} 层`;
+  $('layerStatus').textContent=`第 ${game.layer} 层`;$('layerStatus').setAttribute('aria-label',`第 ${game.layer} 层，已通过 ${game.clearedLayers} 层`);
   $('undoButton').hidden=game.mode==='shuhang';
   $('classicMode').classList.toggle('active',game.mode==='classic');$('classicMode').setAttribute('aria-pressed',String(game.mode==='classic'));
   $('classicControls').hidden=game.mode!=='classic';$('classicLevel').value=String(game.startLevel);$('autoLevel').checked=game.autoLevel;
-  $('classicSpeed').textContent=`当前 ${classicLevel(game)} 级 · ${game.speed} 格/秒`;
+  $('classicSpeed').textContent=`当前 ${classicLevel(game)} 级`;
   $('classicLevel').disabled=!!ui.animation;$('autoLevel').disabled=!!ui.animation;
   $('scoreValue').textContent=game.score;
   const flowHeading=document.querySelector('.flow-mode-heading');if(flowHeading)flowHeading.firstChild.textContent=game.mode==='shuhang'?'整层方案 ':'流程编排 ';
@@ -253,7 +258,7 @@ function render(){
   $('movesStat').innerHTML=`${game.moves}<small> 步</small>`;$('thirdLabel').textContent=game.mode!=='puzzle'?'已消行数':'已用方块';
   $('mobileStats').textContent=`消除 ${game.lines} 行 · ${game.moves} 步`;
   $('thirdStat').innerHTML=game.mode!=='puzzle'?`${game.lines}<small> 行</small>`:`${game.pool.filter(p=>p.used).length}<small> / ${game.pool.length}</small>`;
-  $('boardHint').hidden=!!game.active||!!draftPiece()||!!game.flow||['won','lost'].includes(game.status);
+  $('boardHint').hidden=true;
   $('boardHint').textContent=game.mode==='shuhang'?'选完全部方块后整批提交':'先选形状，再编排。';
   $('boardNote').textContent='流程结束即固定，悬空也会成为下一块的障碍。';
   $('executionToast').hidden=!running();$('executionProgress').textContent=running()?`正在执行 ${game.flow.cursor} / ${ui.plan.length} 步`:'';
@@ -344,6 +349,8 @@ $('commandGrid').onclick=event=>{const button=event.target.closest('[data-comman
 $('rotationPreviewButton').onclick=()=>{
   if(game.mode==='classic'&&game.status==='playing')pause();
   if(!$('rotationPreviewMenu').hidden){closeRotationPreview();draw();return;}
+  const previewRect=$('rotationPreviewButton').getBoundingClientRect(),menu=$('rotationPreviewMenu');
+  menu.style.left=`${Math.max(8,Math.min(innerWidth-222,previewRect.left-214))}px`;menu.style.top=`${Math.max(8,Math.min(innerHeight-62,previewRect.top))}px`;
   $('rotationPreviewMenu').hidden=false;if(game.mode==='classic')$('resultOverlay').hidden=true;$('rotationPreviewButton').setAttribute('aria-expanded','true');
 };
 $('rotationPreviewMenu').onclick=event=>{
@@ -364,10 +371,10 @@ $('pieceRack').onclick=event=>{
   if(game.mode==='shuhang'){const button=event.target.closest('[data-batch-piece]');if(button&&!game.flow&&!ui.animation){const id=button.dataset.batchPiece;if(!ui.batchDrafts.some(item=>item.pieceId===id))ui.batchDrafts.push({pieceId:id,steps:[]});ui.batchSelected=id;notify('为选中方块添加左右移动或旋转；可直接选择下一块。');render();}return;}
 const fixed=event.target.closest('[data-fixed]');if(fixed){showRuleToast('本关是固定顺序关卡，请按库存顺序使用。');return;}const piece=event.target.closest('[data-shape]');if(piece)append({id:'SELECT_PIECE',params:{type:piece.dataset.shape}});};
 $('levelsList').onclick=event=>{const button=event.target.closest('[data-level]');if(button)loadGame({mode:'puzzle',levelIndex:Number(button.dataset.level)});};
-$('puzzleMode').onclick=()=>{if(game.mode!=='puzzle'){loadGame({mode:'puzzle',levelIndex:0});startTour();}};$('endlessMode').onclick=()=>{if(game.mode!=='endless'){loadGame({mode:'endless'});startTour();}};
-$('shuhangMode').onclick=()=>{if(game.mode!=='shuhang'){loadGame({mode:'shuhang'});startTour();}};
+$('puzzleMode').onclick=()=>{if(game.mode!=='puzzle'){loadGame({mode:'puzzle',levelIndex:0});}};$('endlessMode').onclick=()=>{if(game.mode!=='endless'){loadGame({mode:'endless'});}};
+$('shuhangMode').onclick=()=>{if(game.mode!=='shuhang'){loadGame({mode:'shuhang'});}};
 $('batchDifficulty').onchange=()=>{if(game.flow||ui.animation)return;ui.batchDifficulty=$('batchDifficulty').value;loadGame({mode:'shuhang'});};
-$('classicMode').onclick=()=>{if(game.mode!=='classic'){loadGame({mode:'classic'});startTour();}};
+$('classicMode').onclick=()=>{if(game.mode!=='classic'){loadGame({mode:'classic'});}};
 function resumeClassic(){game.status='playing';game.gravity=0;audio.unlock();audio.music(true);render();}
 $('pauseButton').onclick=()=>{if(game.mode==='classic'){if(game.status==='playing')pause();else resumeClassic();}};
 $('undoButton').onclick=()=>{if(ui.animation)return;if(undoLastPiece(game)){ui.plan=[];ui.step=null;stopTimer();closeRotationPreview();notify(game.message);render();}};
@@ -452,13 +459,13 @@ function startTour(){
   closeRotationPreview();
   const classic=game.mode==='classic',mobile=view.name==='mobile';
   tourSteps=[
-    ['.mode-switch','选择玩法','解谜闯关用给定方块清空棋盘；无尽方块可以一直编排；常规模式操作立即生效，方块持续下落。'],
+    ['.mode-switch','选择玩法','解谜闯关用给定方块清空棋盘；无尽方块逐块编排；常规模式即时操作并自动下落；舒航模式整层规划、整批执行。'],
     ...(!classic&&game.mode==='puzzle'?[[mobile?'#openLevels':'.level-section','选择关卡','默认从第一关开始。十五关分为简单、中等、困难、特困难，可随时选关；用完全部方块并清空棋盘才算通关。']]:[]),
-    ['#scoreValue','一次消得越多，奖励越高','同时消除一、二、三、四行分别获得 100、300、600、1000 分。一次四行高于两次两行。'],
+    ['#scoreValue','查看得分','得分在棋盘侧边显示，消行后会累积。'],
     ['#restartButton','重新开始','重置当前棋盘、分数和流程，重新挑战当前关卡或本局。'],
     ['#rotationPreviewButton','旋转预览','眼睛图标是预览入口。展开后点顺时针或逆时针，临时查看真实旋转结果，不添加动作。关闭或离开后恢复原样。常规模式预览前会暂停。'],
     ['#undoButton','撤回上一块','撤销最近一个已固定方块的整轮操作，包括消行和积分；恢复原来的棋盘、库存及同一个方块，重新操作。只能撤回一块，运行和动画期间不可用。'],
-    ['.piece-bar','当前方块与库存',classic?'这里显示当前方块；后续方块显示在预告区。':'固定顺序按队列出场；自由排序先点选一个形状，数字表示该形状剩余数量。'],
+    [classic||game.mode==='endless'?'#endlessNote':'.piece-bar','当前方块与库存',classic?'方块列表最上面是当前方块，下面按顺序显示后续方块。':'固定顺序按队列出场；自由排序先点选一个形状，数字表示该形状剩余数量。'],
     ['#commandGrid','移动与旋转',classic?'左右移动、下移、逆转、顺转都立即生效。每次移动一格。':'点击左移、右移、下移、逆转、顺转，只添加流程步骤。格数可以设置，动作加入后自动回到一格。'],
     ['[data-command="HARD_DROP"]','落地并提交',classic?'立即降到落点并固定当前方块，然后换下一块。':'把“落地并提交”加入末尾，并自动执行整份流程；先执行前面的移动和旋转，再落地固定。'],
     ...(classic?[
@@ -477,8 +484,9 @@ function startTour(){
     [mobile?'#flowPanel':'#planList','检查整层方案','这里逐块列出操作，↑ 调整出场顺序，× 删除动作或取消某块安排。全部候选都安排完，才能整批提交。'],
     ['#runPlan','整批提交','方案锁定后逐块执行：移动和旋转 → 自动落地固定 → 消行 → 下一块。执行期间不能修改；暂停只冻结进度。'],
     ['#layerStatus','挑战更高层','整批存活就进入下一层并给出新候选；方块出生溢出时结束，显示到达层数、通过层数和得分。没有单块撤回，规划后再提交。'],
-    ['#scoreValue','消行积分','一至四行分别 100、300、600、1000 分，积分会跨层累计。']
+    ['#scoreValue','得分','得分在侧边显示，会跨层累计。']
   ];
+  tourSteps=tourSteps.filter(([selector])=>{const target=document.querySelector(selector);return target&&(selector==='#flowPanel'&&view.name==='mobile'||target.getClientRects().length>0);});
   tourIndex=0;tourActive=true;$('tourOverlay').hidden=false;render();showTourStep();$('tourNext').focus();
 }
 function showTourStep(){
@@ -523,5 +531,17 @@ document.addEventListener('keydown',event=>{
   }
 });
 window.addEventListener('resize',positionTour);
-view.init();new ResizeObserver(()=>draw()).observe($('boardStage'));render();startTour();requestAnimationFrame(tick);
+function initBoardLayout(){
+  const stage=$('boardStage'),layout=document.createElement('div'),rail=document.createElement('aside');
+  layout.className='board-layout';rail.className='board-rail';rail.setAttribute('aria-label','得分与游戏工具');
+  stage.before(layout);layout.append(stage,rail);
+  rail.append(document.querySelector('.score-banner'),document.querySelector('.play-actions'),$('classicControls'),$('batchControls'),document.querySelector('.piece-bar'),$('endlessNote'));
+  const quantityLabel=document.querySelector('.quantity-row label');quantityLabel.classList.add('move-quantity');rail.insertBefore(quantityLabel,$('classicControls'));
+  document.body.append($('rotationPreviewMenu'));
+  if(view.name==='mobile'){
+    const mission=document.querySelector('.mobile-mission');mission.append($('openLevels'));
+  }
+  document.querySelectorAll('.voice-entry').forEach(button=>{button.classList.remove('voice-entry');button.classList.add('secondary-button','full-width');$('settingsDialog').append(button);});
+}
+initBoardLayout();view.init();new ResizeObserver(()=>draw()).observe($('boardStage'));render();startTour();requestAnimationFrame(tick);
 
