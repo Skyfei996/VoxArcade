@@ -255,3 +255,78 @@ test('classic clear actually applies automatic acceleration and manual speed sta
     assert.equal(game.lines,4);assert.equal(game.status,'playing');
   }
 });
+
+// Shuhang uses the same per-piece executor but owns and locks a whole layer.
+const batchModule=await import('../engine.mjs');
+const {startBatch,stepBatch}=batchModule;
+function batchItems(game){return game.pool.map(piece=>({pieceId:piece.id,steps:[]}));}
+function finishBatch(game){let count=0;while(game.flow){assert.ok(++count<400);assert.equal(stepBatch(game).ok,true);}return count;}
+test('Shuhang deals 3/4/5 individually identified candidates, freezes planning and has no active preview',()=>{
+  for(const [difficulty,count] of [['easy',3],['medium',4],['hard',5]]){
+    const game=createGame({mode:'shuhang',difficulty});assert.equal(game.pool.length,count);
+    assert.equal(new Set(game.pool.map(p=>p.id)).size,count);assert.equal(game.active,null);
+    assert.equal(game.layer,1);assert.equal(game.clearedLayers,0);
+    const before=copy(game);advance(game,100);assert.deepEqual(game,before);
+    assert.equal(startFlow(game,[drop]).ok,false);assert.deepEqual(game,before);
+  }
+});
+test('Shuhang rejects partial, duplicate, unknown and forbidden plans atomically',()=>{
+  const game=createGame({mode:'shuhang'}),items=batchItems(game),before=copy(game);
+  for(const invalid of [null,[],items.slice(1),[items[0],items[0],items[2]],[{pieceId:'missing',steps:[]},...items.slice(1)]]){
+    assert.equal(startBatch(game,invalid).ok,false);assert.deepEqual(game,before);
+  }
+  for(const command of [drop,a('MOVE_DOWN'),select('I'),a('HOLD'),a('MOVE_LEFT',null),move('MOVE_LEFT',0),move('MOVE_RIGHT',10),move('MOVE_LEFT',1.5)]){
+    const invalid=copy(items);invalid[0].steps=[command];assert.equal(startBatch(game,invalid).ok,false);assert.deepEqual(game,before);
+  }
+});
+test('Shuhang drops each selected instance exactly once, scores clears and only then deals the next layer',()=>{
+  const game=createGame({mode:'shuhang'});game.pool.forEach(p=>p.type='O');
+  for(const y of [18,19])for(const x of [2,3,6,7])game.board[y][x]='fixed';
+  const ids=game.pool.map(p=>p.id),items=[{pieceId:ids[2],steps:[move('MOVE_LEFT',4)]},{pieceId:ids[0],steps:[]},{pieceId:ids[1],steps:[move('MOVE_RIGHT',4)]}];
+  assert.equal(startBatch(game,items).ok,true);assert.equal(game.active.id,ids[2]);
+  const queuedIds=copy(game.batch.items.map(p=>p.pieceId));
+  stepBatch(game);assert.equal(game.active.x,0);assert.equal(game.layer,1);
+  stepBatch(game);assert.equal(game.pool.filter(p=>p.used).length,1);assert.equal(game.layer,1);assert.equal(game.active.id,ids[0]);
+  stepBatch(game);assert.equal(game.pool.filter(p=>p.used).length,2);assert.equal(game.layer,1);
+  assert.deepEqual(game.batch.items.map(p=>p.pieceId),queuedIds);
+  finishBatch(game);assert.equal(game.layer,2);assert.equal(game.clearedLayers,1);assert.equal(game.score,300);assert.equal(game.lines,2);
+  assert.ok(game.board.flat().every(v=>!v));assert.equal(game.pool.length,3);assert.ok(game.pool.every(p=>!ids.includes(p.id)&&!p.used));
+  assert.equal(game.active,null);assert.equal(game.batch,null);assert.equal(game.flow,null);assert.equal(game.status,'paused');
+});
+test('Shuhang preserves occupied cells between layers without requiring an empty board',()=>{
+  const game=createGame({mode:'shuhang',difficulty:'hard'});startBatch(game,batchItems(game));finishBatch(game);
+  assert.equal(game.layer,2);assert.equal(game.board.flat().filter(Boolean).length,20-game.lines*10);
+  const before=copy(game.board);advance(game,100);assert.deepEqual(game.board,before);assert.equal(game.active,null);
+});
+test('Shuhang owns immutable input, disallows resubmission and resumes a paused batch without editing',()=>{
+  const game=createGame({mode:'shuhang'}),items=batchItems(game);items[0].steps=[move('MOVE_LEFT',1)];
+  startBatch(game,items);items[0].steps[0].params.cells=9;items.reverse();
+  assert.equal(game.batch.items[0].steps[0].params.cells,1);const original=copy(game);
+  assert.equal(startBatch(game,batchItems(game)).ok,false);assert.deepEqual(game,original);
+  pauseFlow(game);const paused=copy(game);advance(game,10);assert.equal(stepBatch(game).ok,false);assert.deepEqual(game,paused);
+  assert.equal(resumeFlow(game),true);finishBatch(game);assert.equal(game.clearedLayers,1);assert.equal(batchModule.undoLastPiece(game),false);
+});
+test('Shuhang initial overflow stops before consuming any candidate',()=>{
+  const game=createGame({mode:'shuhang'});game.pool.forEach(p=>p.type='O');game.board[0][4]='fixed';
+  assert.equal(startBatch(game,batchItems(game)).ok,true);assert.equal(game.status,'lost');
+  assert.equal(game.flow,null);assert.equal(game.batch,null);assert.ok(game.pool.every(p=>!p.used));
+  assert.equal(game.layer,1);assert.equal(game.clearedLayers,0);assert.equal(startBatch(game,batchItems(game)).ok,false);
+});
+test('Shuhang middle overflow discards the rest of the batch and does not advance the layer',()=>{
+  const game=createGame({mode:'shuhang'});game.pool.forEach(p=>p.type='O');
+  game.board[2][4]='fixed';game.board[2][5]='fixed';const ids=game.pool.map(p=>p.id);
+  startBatch(game,batchItems(game));stepBatch(game);
+  assert.equal(game.status,'lost');assert.equal(game.layer,1);assert.equal(game.clearedLayers,0);
+  assert.equal(game.pool.find(p=>p.id===ids[0]).used,true);assert.ok(game.pool.slice(1).every(p=>!p.used));
+  const before=copy(game);stepBatch(game);assert.deepEqual(game,before);
+});
+
+test('Shuhang grounded lateral collision skips only that action before automatic drop',()=>{
+  const game=createGame({mode:'shuhang'});game.pool.forEach(p=>p.type='O');
+  game.board[0][3]='fixed';game.board[2][4]='fixed';game.board[2][5]='fixed';
+  const items=batchItems(game);items[0].steps=[move('MOVE_LEFT',1),move('MOVE_RIGHT',2)];
+  startBatch(game,items);const id=game.active.id;
+  assert.equal(stepBatch(game).skipped,true);assert.equal(game.active.id,id);assert.equal(game.pool[0].used,false);
+  stepBatch(game);assert.equal(game.active.x,6);assert.equal(game.active.y,0);
+  stepBatch(game);assert.equal(game.pool[0].used,true);assert.equal(game.board[19][6],'O');
+});

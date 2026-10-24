@@ -17,7 +17,9 @@ export const view={
   },
   render(game,plan){
     $('openLevels').hidden=game.mode!=='puzzle';
-    $('flowSummary').textContent=plan.length?`· ${plan.length} 步`:'';
+    $('openFlow').firstChild.textContent=game.mode==='shuhang'?'整层方案 ':'流程 ';
+    $('flowSummary').textContent=plan.length?`· ${plan.length} ${game.mode==='shuhang'?'块':'步'}`:'';
+    document.querySelector('.drawer-heading h2').textContent=game.mode==='shuhang'?'整层方案':'编辑流程';
     $('openFlow').disabled=!!game.flow;
   },
   beforeRun(){drawer(false);},
