@@ -1,5 +1,5 @@
-import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=landing-control-20261024';
-import {GameAudio,commandSound} from './audio.mjs?v=landing-control-20261024';
+import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=queued-land-20261024';
+import {GameAudio,commandSound} from './audio.mjs?v=queued-land-20261024';
 import {sizeBoard,drawGrid} from './board-view.mjs';
 const {view}=await import(document.body.dataset.view==='mobile'?'./mobile-view.mjs':'./desktop-view.mjs');
 const audio=new GameAudio();
@@ -84,7 +84,7 @@ function append(command){
   if(command.id!=='SELECT_PIECE'){ui.quantity=1;$('quantity').value='1';}
   audio.unlock();audio.effect(command.id==='SELECT_PIECE'?'select':'click');
   notify(`已加入：${label(command)}。运行前不展示流程结果。`);render();$('planList').scrollTop=$('planList').scrollHeight;
-  if(['LAND','HARD_DROP'].includes(command.id))runPlan();
+  if(command.id==='HARD_DROP')runPlan();
 }
 function draftPiece(){
   if(game.mode==='shuhang'&&(game.flow||ui.animation||game.status==='lost'))return null;
@@ -296,9 +296,9 @@ function render(){
   });
   const dropButton=document.querySelector('[data-command="HARD_DROP"]');
   dropButton.querySelector('.command-label').firstChild.textContent=ui.dropOnly?'落地':'落地并提交';
-  dropButton.querySelector('.command-detail').textContent=ui.dropOnly?'不提交 · 长按切换':'长按切换为只落地';
+  dropButton.querySelector('.command-detail').textContent=ui.dropOnly?(game.mode==='classic'?'不提交 · 长按切换':'加入流程 · 长按切换'):'长按切换为只落地';
   dropButton.setAttribute('aria-label',ui.dropOnly?'落地，不提交，长按切换':'落地并提交，长按切换');
-  dropButton.title='短按执行当前模式；长按 0.5 秒或 Shift+Enter 切换落地/落地并提交';
+  dropButton.title=game.mode==='classic'?'短按立即操作；长按 0.5 秒或 Shift+Enter 切换落地/落地并提交':'只落地仅加入流程，运行后执行；长按 0.5 秒或 Shift+Enter 切换落地/落地并提交';
   dropButton.classList.toggle('drop-only',ui.dropOnly);
   $('submitPlacement').hidden=game.mode!=='classic'||!game.placementOpen;
   $('submitPlacement').disabled=!!ui.animation||game.status!=='playing';
@@ -549,7 +549,7 @@ function startTour(){
     ['#undoButton','撤回上一块','撤销最近一个已固定方块的整轮操作，包括消行和积分；恢复原来的棋盘、库存及同一个方块，重新操作。只能撤回一块，运行和动画期间不可用。'],
     [classic||game.mode==='endless'?'#endlessNote':'.piece-bar','当前方块与库存',classic?'方块列表最上面是当前方块，下面按顺序显示后续方块。':'固定顺序按队列出场；自由排序先点选一个形状，数字表示该形状剩余数量。'],
     ['#commandGrid','移动与旋转',classic?'左右移动、下移、逆转、顺转都立即生效。每次移动一格。':'点击左移、右移、下移、逆转、顺转，只添加流程步骤。格数可以设置，动作加入后自动回到一格。'],
-    ['[data-command="HARD_DROP"]','落地并提交',classic?'默认短按落地并提交；长按半秒切换为只落地。只落地后自动锁定会等待，可继续左右、下移或旋转，再点“提交当前方块”；也可长按切回落地并提交。':'默认短按落地并提交；长按半秒切换为只落地。只落地会运行已有步骤并保留当前块，可以再编排左右或下移动作，运行调整后点“提交当前方块”，也可切回落地并提交。'],
+    ['[data-command="HARD_DROP"]','落地并提交',classic?'默认短按落地并提交；长按半秒切换为只落地。只落地后自动锁定会等待，可继续左右、下移或旋转，再点“提交当前方块”；也可长按切回落地并提交。':'默认短按落地并提交；长按半秒切换为只落地。点击只落地仅加入流程，棋盘保持不动；运行流程后才落地并保留当前块，可以在落地步骤后继续编排左右或下移动作，运行调整后点“提交当前方块”，也可切回落地并提交。'],
     ...(classic?[
       ['#classicControls','九级速度','手动选择起始等级。一共九级，越高越快；勾选积分升级，每累计 1000 分在起始等级上提升一级，最高九级。取消勾选则保持手动等级。'],
       ['#pauseButton','暂停与继续','暂停会冻结自动下落，点击继续恢复。打开设置、引导或切到后台也会暂停。']
