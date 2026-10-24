@@ -16,11 +16,11 @@ export const LEVELS=[
   {id:'P008',title:'不完整的拼图',width:8,height:12,rows:['......##','####..##'],pieces:['T','J','L','S','Z','T'],free:true,goal:'利用底部已有布局，自行安排五种形状共六块。必须用完，再清空整个棋盘。',tags:['进阶 · 6 块','自由排序']}
 ];
 const EXTRA_LEVELS=[
-  {id:'P009',title:'靠左的一横',rows:['....##'],pieces:['I'],free:false,difficulty:'简单',goal:'左移一格，让 I 填满底行。'},
-  {id:'P010',title:'靠右的方窗',rows:['####..','####..'],pieces:['O'],free:false,difficulty:'简单',goal:'把 O 移到右侧，同时消除两行。'},
-  {id:'P011',title:'四行奖励',rows:['##.###','##.###','##.###','##.###'],pieces:['I'],free:false,difficulty:'中等',goal:'把 I 竖起来，一次消除四行，获得 1000 分。'},
-  {id:'P012',title:'左侧的钩子',rows:['...###','##.###'],pieces:['J'],free:false,difficulty:'中等',goal:'把 J 翻转半圈，放到左侧的缺口，一次清空两行。'},
-  {id:'P013',title:'倒立的钥匙',rows:['###...','####.#'],pieces:['T'],free:false,difficulty:'中等',goal:'把 T 翻转半圈，对齐右侧缺口，清空两行。'},
+  {"id":"P009","title":"两块接力","rows":["......","..####"],"pieces":["O","I"],"free":false,"difficulty":"简单","goal":"安排两块的位置，用完全部方块并清空棋盘。"},
+  {"id":"P010","title":"转角拼合","rows":["#.....","##.#.."],"pieces":["T","O"],"free":false,"difficulty":"简单","goal":"观察 T 和 O 如何配合，用完两块并清空棋盘。"},
+  {"id":"P011","title":"留出下一步","rows":["......","...###","...###"],"pieces":["L","I","S"],"free":true,"difficulty":"中等","goal":"自行安排三种形状，兼顾当前落点和后续空间，用完全部方块并清空棋盘。"},
+  {"id":"P012","title":"错层接力","rows":["#.....","#.....","###.#."],"pieces":["T","L","O"],"free":false,"difficulty":"中等","goal":"三块按固定顺序出场。观察消行后的错层变化，用完全部方块并清空棋盘。"},
+  {"id":"P013","title":"双折线布局","rows":["#.....","##....","..#..#","..#.##"],"pieces":["Z","J","O","Z"],"free":true,"difficulty":"中等","goal":"两块 Z 与 J、O 自由排序，规划落点与通道，用完四块并清空棋盘。"},
   {id:'P014',title:'残局接力',width:8,height:12,rows:['.#......','#####.##'],pieces:['T','J','S','L'],free:false,difficulty:'困难',goal:'四块按固定顺序出场。利用底部缺口，逐步消除并清空。'},
   {id:'P015',title:'五块协作',width:8,height:12,rows:['...##.##'],pieces:['L','T','S','J','T'],free:true,difficulty:'困难',goal:'五块自由排序，T 有两块。规划顺序与朝向，全部用完并清空。'}
 ];
@@ -322,3 +322,4 @@ export function stepBatch(game){
   }
   return {...result,finished:!game.batch};
 }
+

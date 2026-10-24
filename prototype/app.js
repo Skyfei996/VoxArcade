@@ -1,4 +1,4 @@
-import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES} from './engine.mjs';
+import {SHAPES,COLORS,LEVELS,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES} from './engine.mjs?v=puzzle-redesign-20261024';
 import {GameAudio,commandSound} from './audio.mjs';
 import {sizeBoard,drawGrid} from './board-view.mjs';
 const {view}=await import(document.body.dataset.view==='mobile'?'./mobile-view.mjs':'./desktop-view.mjs');
@@ -544,4 +544,5 @@ function initBoardLayout(){
   document.querySelectorAll('.voice-entry').forEach(button=>{button.classList.remove('voice-entry');button.classList.add('secondary-button','full-width');$('settingsDialog').append(button);});
 }
 initBoardLayout();view.init();new ResizeObserver(()=>draw()).observe($('boardStage'));render();startTour();requestAnimationFrame(tick);
+
 
