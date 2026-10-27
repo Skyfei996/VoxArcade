@@ -32,6 +32,26 @@ const EXTRA_LEVELS=[
 ];
 LEVELS.forEach((level,index)=>level.difficulty=index<2?'简单':index<5?'中等':'特困难');
 LEVELS.push(...EXTRA_LEVELS.map(level=>({...level,tags:[level.difficulty,level.free?'自由排序':'固定顺序']})));
+export const LEGACY_LEVEL_IDS=Array.from({length:15},(_,i)=>`P${String(i+1).padStart(3,'0')}`);
+LEVELS.push(...[
+  {"id":"P016","width":6,"height":8,"rows":["...#.#","#..###"],"pieces":["S","L","T"],"free":true,"title":"台阶铺垫","difficulty":"中等","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P017","width":6,"height":8,"rows":["#.....","#.....","##.#.#"],"pieces":["S","T","I"],"free":false,"title":"折角换位","difficulty":"中等","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P018","width":6,"height":8,"rows":[".....#","....##","...###"],"pieces":["L","S","T"],"free":true,"title":"双向接力","difficulty":"中等","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P019","width":6,"height":8,"rows":["..##.."],"pieces":["L","S","L","O"],"free":false,"title":"错落成行","difficulty":"中等","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P020","width":6,"height":8,"rows":["#.....","#....."],"pieces":["O","T","T","L"],"free":true,"title":"四块衔接","difficulty":"中等","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P021","width":8,"height":12,"rows":["#.......","##.....#","##.....#","##.#..##"],"pieces":["Z","I","T","I","J"],"free":true,"title":"窄口接龙","difficulty":"困难","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P022","width":8,"height":12,"rows":["#.......","#.....#.","##....#.","##.####."],"pieces":["J","L","I","S","I"],"free":false,"title":"交错长桥","difficulty":"困难","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P023","width":8,"height":12,"rows":["#.......","#.......","#.......","#.#.##.#"],"pieces":["T","Z","S","Z","L","T"],"free":true,"title":"六块连环","difficulty":"困难","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P024","width":8,"height":12,"rows":["......#.","......#.","...##.##","#..#####"],"pieces":["J","J","I","O","I","L","I"],"free":true,"title":"七步回环","difficulty":"特困难","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P025","width":8,"height":12,"rows":["..#.#...","..#.#...","..#.##.#"],"pieces":["O","L","I","I","T","O","T","I"],"free":false,"title":"八块终章","difficulty":"特困难","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"}
+].map(level=>({...level,tags:[level.difficulty,level.free?'自由排序':'固定顺序']})));
+const DIFFICULTY_ORDER=['简单','中等','困难','特困难'];
+LEVELS.sort((a,b)=>DIFFICULTY_ORDER.indexOf(a.difficulty)-DIFFICULTY_ORDER.indexOf(b.difficulty));
+export function completedLevelIds(saved,legacy=false){
+  if(!Array.isArray(saved))return [];
+  const ids=legacy?saved.filter(Number.isInteger).map(index=>LEGACY_LEVEL_IDS[index]):saved;
+  return [...new Set(ids.filter(id=>LEVELS.some(level=>level.id===id)))];
+}
 export const LINE_POINTS=[0,100,300,600,1000];
 export const CLASSIC_SPEEDS=[0.8,1.2,1.8,2.6,3.6,5,6.5,8,10];
 export function classicLevel(game){return game.autoLevel?Math.min(9,game.startLevel+Math.floor(game.score/1000)):game.startLevel;}
@@ -94,7 +114,7 @@ function shuffledBag(){
   return bag;
 }
 function spawn(game,type,id){
-  game.generation++;game.placementOpen=false;
+  game.generation++;
   game.active={type,id,matrix:copy(shapeMatrix(type)),x:Math.floor((game.width-shapeMatrix(type).length)/2),y:0};
   game.gravity=0;
   if(!isTool(type)&&!fits(game,game.active)){game.status='lost';game.active=null;game.message='出生位置被挡住了，换个方案再试。';}
@@ -123,7 +143,7 @@ export function createGame(options={}){
     difficulty:['easy','medium','hard'].includes(options.difficulty)?options.difficulty:'easy',layer:1,clearedLayers:0,batch:null,
     tools:mode==='puzzle'?null:{PHASE:1,BOMB:1,rewarded:0,pending:0,next:0},
     active:null,pool:[],queue:[],held:null,holdUsed:false,score:0,lines:0,moves:0,elapsed:0,
-    gravity:0,placementOpen:false,generation:0,serial:0,flow:null,lastFlow:null,message:'先编排，点击运行后才执行。'};
+    gravity:0,generation:0,serial:0,flow:null,lastFlow:null,message:'先编排，点击运行后才执行。'};
   if(mode==='puzzle'){
     level.rows.forEach((row,y)=>[...row].forEach((v,x)=>{if(v==='#')game.board[height-level.rows.length+y][x]='fixed';}));
     game.pool=level.pieces.map((type,i)=>({type,id:`${type}#${i+1}`,used:false}));
@@ -191,7 +211,7 @@ function commit(game){
   if(game.mode==='classic')game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];
   game.lines+=cleared;
   game.board=[...Array.from({length:cleared},()=>Array(game.width).fill(null)),...kept];
-  game.active=null;game.placementOpen=false;game.generation++;game.holdUsed=false;
+  game.active=null;game.generation++;game.holdUsed=false;
   game.message=explosion?'炸弹引爆，清除周围 3×3 范围。':cleared?`消除 ${cleared} 行。`:'方块已固定在当前位置。';
   if(game.mode==='puzzle'&&game.pool.every(p=>p.used)){
     game.status=game.board.every(row=>row.every(v=>!v))?'won':'lost';
@@ -202,11 +222,10 @@ function commit(game){
 function endFlow(game,reason,commitActive=true){
   const flow=game.flow;if(!flow)return;
   const owned=!!game.active&&game.active.id===flow.pieceId;
-  if(reason==='complete'&&game.placementOpen){commitActive=false;reason='placement';}
   if(commitActive&&owned)commit(game);
   if(commitActive&&owned&&game.transition?.kind==='explosion')reason='explosion';
   if(!['won','lost'].includes(game.status))game.status='paused';
-  const messages={submit:'当前方块已提交。',placement:'已落地，方块尚未提交；可以继续调整，再提交当前方块。',explosion:'炸弹碰撞引爆，后续步骤已终止。',complete:'流程执行完毕，方块已固定；流程已清空。',downBlocked:'下方受阻，剩余步骤已终止，方块已固定。',sideBlocked:'接地后横移受阻，剩余步骤已终止，方块已固定。',hardDrop:'已落地提交；流程已清空。',gravity:'自动下落遇阻，剩余步骤已终止。',hold:'已暂存交换；流程已清空。',invalid:`${flow.logs.at(-1)?.message??'指令无法执行。'} 本轮流程已终止。`,stale:'方块已更换，旧流程已终止。'};
+  const messages={submit:'当前方块已提交。',explosion:'炸弹碰撞引爆，后续步骤已终止。',complete:'流程执行完毕，方块已固定；流程已清空。',downBlocked:'下方受阻，剩余步骤已终止，方块已固定。',sideBlocked:'接地后横移受阻，剩余步骤已终止，方块已固定。',hardDrop:'已落地提交；流程已清空。',gravity:'自动下落遇阻，剩余步骤已终止。',hold:'已暂存交换；流程已清空。',invalid:`${flow.logs.at(-1)?.message??'指令无法执行。'} 本轮流程已终止。`,stale:'方块已更换，旧流程已终止。'};
   const message=game.status==='won'?game.message:game.status==='lost'?`${messages[reason]??'本轮已结束。'} ${game.message}`:messages[reason]??reason;
   game.lastFlow={reason,executed:flow.cursor,logs:copy(flow.logs),message};
   game.flow=null;game.gravity=0;game.message=message;
@@ -231,7 +250,7 @@ export function startFlow(game,steps){
   if(game.flow)return {ok:false,message:'本轮流程尚未完成，请继续运行。'};
   if(['won','lost'].includes(game.status))return {ok:false,message:'请先重开或进入下一关。'};
   const check=validatePlan(steps);if(!check.ok)return check;
-  if(!game.placementOpen)game.turnStart=game.mode==='shuhang'?null:snapshot(game);
+  game.turnStart=game.mode==='shuhang'?null:snapshot(game);
   game.flow={steps:copy(steps),cursor:0,pieceId:game.active?.id??null,logs:[],status:'running'};
   game.status='playing';game.gravity=0;return {ok:true,message:'开始运行流程'};
 }
@@ -243,7 +262,7 @@ export function resumeFlow(game){
   return false;
 }
 export function dispatch(game,command){
-  const {id,params={}}=command;
+  let {id,params={}}=command;
   if(id==='SET_FALL_MODE'||id==='SET_FALL_SPEED'){
     if(game.mode!=='endless')return {ok:false,message:'此模式的下落方式固定。'};
     if(game.flow)return {ok:false,message:'本轮流程完成后再修改设置。'};
@@ -272,9 +291,11 @@ export function dispatch(game,command){
   if(id==='SUBMIT_PIECE'){game.moves++;return {ok:true,terminal:true,reason:'submit',message:'提交当前方块。'};}
   if(isTool(game.active.type))return toolAction(game,command);
   if(id==='LAND'){
-    const landing=landingPiece(game,game.active);if(landing)game.active=landing;
-    game.placementOpen=true;game.gravity=0;game.moves++;
-    return {ok:true,message:'已落地，仍可移动，尚未提交。'};
+    const distance=landingPiece(game,game.active).y-game.active.y;
+    // Resolve at execution time, after preceding moves/rotations. Exact contact
+    // does not lock; normal flow completion or the next gravity collision does.
+    if(!distance){game.moves++;return {ok:true,message:'下移 0 格，已在落点。'};}
+    id='MOVE_DOWN';params={cells:distance};
   }
   if(id==='HOLD'){
     if(game.mode!=='endless'||game.holdUsed)return {ok:false,message:'当前不能暂存。'};
@@ -296,12 +317,11 @@ export function dispatch(game,command){
     while(moved<count&&fits(game,{...candidate,x:candidate.x+dx,y:candidate.y+dy})){candidate.x+=dx;candidate.y+=dy;moved++;}
     game.moves++;
     if(dx&&moved<count){
-      if(!game.placementOpen&&!['classic','shuhang'].includes(game.mode)&&!fits(game,{...game.active,y:game.active.y+1}))return {ok:true,terminal:true,reason:'sideBlocked',message:'接地后左右受阻，终止流程。'};
+      if(!['classic','shuhang'].includes(game.mode)&&!fits(game,{...game.active,y:game.active.y+1}))return {ok:true,terminal:true,reason:'sideBlocked',message:'接地后左右受阻，终止流程。'};
       return {ok:true,skipped:true,message:game.mode==='classic'?'左右受阻，方块保持原位。':'左右受阻，本步不生效，继续下一步。'};
     }
     game.active=candidate;
 
-    if(dy&&moved<count&&game.placementOpen)return {ok:true,skipped:true,message:'下方受阻，保持当前方块等待调整或提交。'};
     if(dy&&moved<count)return {ok:true,terminal:true,reason:'downBlocked',message:`下移 ${moved} 格后受阻，终止流程。`};
     return {ok:true,message:`${dx<0?'左移':dx>0?'右移':'下移'} ${moved} 格`};
   }
@@ -321,7 +341,7 @@ function toolAction(game,command){
     game.moves++;
     const landing=landingPiece(game,piece);
     if(landing)Object.assign(piece,landing);
-    if(id==='LAND'&&piece.type==='PHASE'&&landing){game.placementOpen=true;game.gravity=0;return {ok:true,message:'穿墙单格已落地，尚未提交。'};}
+    if(id==='LAND'&&piece.type==='PHASE'&&landing)return {ok:true,message:'穿墙单格落入本列最低空格，继续正常流程。'};
     return piece.type==='BOMB'?detonate():{ok:true,terminal:true,reason:'hardDrop',message:'穿墙单格落入本列最低空格。'};
   }
   if(!['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN'].includes(id))return {ok:false,message:'道具只能左右移动、下移或落地。'};
@@ -335,7 +355,7 @@ function toolAction(game,command){
     const inside=next.x>=0&&next.x<game.width&&next.y>=0&&next.y<game.height;
     if(!inside||piece.type==='BOMB'&&!fits(game,next)){
       if(piece.type==='BOMB')return detonate();
-      return dy&&game.placementOpen?{ok:true,skipped:true,message:'已到边界，等待调整或提交。'}:dy?{ok:true,terminal:true,reason:'downBlocked',message:'穿墙单格到达底边。'}:{ok:true,skipped:true,message:'已到棋盘边界。'};
+      return dy?{ok:true,terminal:true,reason:'downBlocked',message:'穿墙单格到达底边。'}:{ok:true,skipped:true,message:'已到棋盘边界。'};
     }
     piece.x=next.x;piece.y=next.y;
   }
@@ -365,7 +385,6 @@ export function classicAction(game,command){
   if(!game.transition)game.message=result.message;return result;
 }
 export function advance(game,seconds){
-  if(game.placementOpen)return;
   if(game.mode==='classic'){
     if(game.status!=='playing')return;
     game.elapsed+=seconds;game.gravity+=seconds;

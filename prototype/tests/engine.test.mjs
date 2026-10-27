@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LEVELS,SHAPES,createGame,copy,cells,landingPiece,startFlow,stepFlow,pauseFlow,resumeFlow,dispatch,advance,inventory,validatePlan} from '../engine.mjs';
+import {LEVELS,completedLevelIds,SHAPES,createGame,copy,cells,landingPiece,startFlow,stepFlow,pauseFlow,resumeFlow,dispatch,advance,inventory,validatePlan} from '../engine.mjs';
 import {buildScenario} from '../rotation-demo.mjs';
 import {clearVolume} from '../audio.mjs';
 import {LEVEL_SOLUTIONS} from './level-solutions.mjs';
 const a=(id,params)=>({id,params}),move=(id,cells)=>a(id,{cells}),select=type=>a('SELECT_PIECE',{type});
 const drop=a('HARD_DROP');
+const levelIndex=id=>LEVELS.findIndex(level=>level.id===id);
 test('all 70 rotation demonstrations use legal starts and match actual command execution',()=>{
   for(const type of Object.keys(SHAPES))for(const clockwise of [true,false])for(const kind of ['empty','left','right','obstacle','blocked']){
     const example=buildScenario(type,kind,clockwise),{piece,trace}=example,game={...example.game,active:copy(piece),moves:0,status:'playing',flow:{pieceId:'demo'}};
@@ -121,7 +122,7 @@ test('failed rotation is skipped and later steps still execute',()=>{
   assert.equal(game.lastFlow.logs[0].skipped,true);assert.equal(game.lastFlow.executed,2);
 });
 test('inventory groups duplicate shapes and only decreases on commit',()=>{
-  const game=createGame({levelIndex:5});
+  const game=createGame({levelIndex:levelIndex('P006')});
   assert.equal(inventory(game).find(p=>p.type==='T').count,2);
   const before=copy(game);validatePlan([select('T'),move('MOVE_LEFT',2),move('MOVE_DOWN',3)]);
   assert.deepEqual(game,before);
@@ -129,7 +130,7 @@ test('inventory groups duplicate shapes and only decreases on commit',()=>{
   assert.equal(inventory(game).find(p=>p.type==='T').count,1);
 });
 test('fixed-order levels reject manual shape selection',()=>{
-  const game=createGame({levelIndex:6}),id=game.active.id;
+  const game=createGame({levelIndex:levelIndex('P007')}),id=game.active.id;
   startFlow(game,[select('O')]);const result=stepFlow(game);
   assert.equal(result.ok,false);assert.equal(game.active.id,id);assert.ok(game.pool.every(p=>!p.used));
 });
@@ -205,7 +206,7 @@ test('undo restores a clear, score, inventory and original spawn, once only',asy
 });
 test('undo a free-order selection gives the same piece back ready to plan',async()=>{
   const {undoLastPiece}=await import('../engine.mjs');
-  const game=createGame({levelIndex:2});run(game,[select('I'),a('ROTATE_CW'),drop]);
+  const game=createGame({levelIndex:levelIndex('P003')});run(game,[select('I'),a('ROTATE_CW'),drop]);
   assert.equal(undoLastPiece(game),true);assert.equal(game.active.type,'I');
   assert.deepEqual(game.active.matrix,SHAPES.I);assert.equal(game.pool.filter(p=>p.used).length,0);
   run(game,[a('ROTATE_CW'),drop]);assert.equal(game.lines,2);
@@ -348,16 +349,16 @@ test('all puzzle layouts are distinct, including horizontal mirrors',()=>{
 });
 
 test('redesigned easy levels introduce two-piece placement and basic rotation',()=>{
-  for(const index of [8,9]){
+  for(const index of ['P009','P010'].map(levelIndex)){
     assert.equal(LEVELS[index].difficulty,'简单');assert.equal(LEVELS[index].pieces.length,2);
     const game=createGame({levelIndex:index});run(game,LEVEL_SOLUTIONS[index][0]);
     assert.notEqual(game.status,'won');assert.equal(game.pool.filter(p=>!p.used).length,1);
   }
-  assert.ok(LEVEL_SOLUTIONS[9].flat().some(c=>c.id.startsWith('ROTATE_')));
+  assert.ok(LEVEL_SOLUTIONS[levelIndex('P010')].flat().some(c=>c.id.startsWith('ROTATE_')));
 });
 
 test('redesigned medium solutions need setup turns and do not follow inventory order',()=>{
-  for(const index of [10,11,12]){
+  for(const index of ['P011','P012','P013'].map(levelIndex)){
     const level=LEVELS[index];assert.equal(level.difficulty,'中等');assert.ok(level.pieces.length>=3&&level.pieces.length<=4);
     const game=createGame({levelIndex:index});run(game,LEVEL_SOLUTIONS[index][0]);
     assert.equal(game.lines,0,`${level.id} reference starts with a setup turn`);
@@ -377,7 +378,7 @@ test('redesigned medium solutions need setup turns and do not follow inventory o
 });
 
 test('reversing the authored order fails in the redesigned free-order medium puzzles',()=>{
-  for(const index of [10,12]){
+  for(const index of ['P011','P013'].map(levelIndex)){
     const game=createGame({levelIndex:index});
     for(const flow of [...LEVEL_SOLUTIONS[index]].reverse()){
       if(game.status==='lost')break;
@@ -544,58 +545,61 @@ function cavityFixture(mode='endless'){
   return game;
 }
 
-test('landing alone preserves the same block for later lateral movement beneath an overhang',()=>{
-  const game=cavityFixture(),id=game.active.id;const initial=copy(game.board);
-  run(game,[land]);assert.equal(game.active.id,id);assert.equal(game.active.y,17);assert.equal(game.placementOpen,true);assert.deepEqual(game.board,initial);assert.equal(game.score,0);
-  run(game,[move('MOVE_LEFT',2)]);assert.equal(game.active.x,2);assert.equal(game.active.y,17);assert.deepEqual(game.board,initial);
-  run(game,[land]);assert.equal(game.active.y,18);assert.equal(game.placementOpen,true);assert.deepEqual(game.board,initial);
-  run(game,[submitPiece]);assert.equal(game.placementOpen,false);assert.notEqual(game.active.id,id);
-  for(const y of [18,19])for(const x of [2,3])assert.equal(game.board[y][x],'O');
-  assert.equal(game.board[16][2],'J');
+test('landing at the end of a flow fixes normally and spawns once',()=>{
+  const game=cavityFixture(),id=game.active.id;
+  run(game,[land]);assert.notEqual(game.active.id,id);assert.equal(game.board[17][4],'O');
+  assert.equal(game.lastFlow.reason,'complete');assert.equal(game.serial,2);
 });
 
 test('landing then sliding and committing can run in a single authored flow',()=>{
   const game=cavityFixture();run(game,[land,move('MOVE_LEFT',2),drop]);
-  assert.equal(game.board[19][2],'O');assert.equal(game.board[18][3],'O');assert.equal(game.placementOpen,false);
+  assert.equal(game.board[19][2],'O');assert.equal(game.board[18][3],'O');assert.equal(game.placementOpen,undefined);
   assert.equal(game.lastFlow.executed,3);
 });
 
-test('grounded collisions after landing alone do not accidentally submit the current block',()=>{
-  const game=cavityFixture();run(game,[land]);const id=game.active.id,board=copy(game.board);
-  game.board[17][3]='fixed';const blocked=copy(game.board);
-  run(game,[move('MOVE_LEFT',1),move('MOVE_DOWN',1)]);
-  assert.equal(game.active.id,id);assert.equal(game.active.x,4);assert.equal(game.placementOpen,true);assert.deepEqual(game.board,blocked);
-  assert.ok(game.lastFlow.logs.every(log=>log.skipped));assert.notDeepEqual(game.board,board);
+test('grounded collisions after LAND use normal termination rules',()=>{
+  for(const tail of [[move('MOVE_DOWN',1)],[move('MOVE_RIGHT',9)]]){
+    const game=cavityFixture(),id=game.active.id;
+    run(game,[land,...tail,move('MOVE_LEFT',2)]);
+    assert.notEqual(game.active.id,id);assert.equal(game.lastFlow.executed,2);
+    assert.equal(game.board[17][4],'O');
+  }
 });
 
-test('classic landing alone freezes gravity lock while permitting immediate slide and explicit submission',()=>{
-  const game=cavityFixture('classic'),id=game.active.id;classicAction(game,land);assert.equal(game.active.y,17);
-  const settled=copy(game);advance(game,100);assert.deepEqual(game,settled);
-  classicAction(game,move('MOVE_LEFT',2));classicAction(game,land);assert.equal(game.active.y,18);assert.equal(game.active.id,id);
-  classicAction(game,submitPiece);assert.equal(game.board[19][2],'O');assert.equal(game.placementOpen,false);assert.equal(game.status,'playing');
+test('classic LAND preserves gravity clock and allows an immediate slide under an overhang',()=>{
+  const game=cavityFixture('classic'),id=game.active.id;game.gravity=.7;
+  classicAction(game,land);assert.equal(game.active.y,17);assert.equal(game.gravity,.7);
+  classicAction(game,move('MOVE_LEFT',2));assert.equal(game.active.x,2);assert.equal(game.active.id,id);
+  advance(game,.6);assert.equal(game.active.y,18);assert.equal(game.active.id,id);
+  advance(game,1.3);assert.notEqual(game.active.id,id);assert.equal(game.board[19][2],'O');
+  assert.equal(game.status,'playing');
+});
+
+test('classic LAND locks on the original next gravity tick when no slide occurs',()=>{
+  const game=cavityFixture('classic'),id=game.active.id;game.gravity=.7;classicAction(game,land);
+  advance(game,.6);assert.notEqual(game.active.id,id);assert.equal(game.board[17][4],'O');
   const y=game.active.y;advance(game,2);assert.ok(game.active.y>y);
 });
 
-test('undo after several landing adjustments restores the original whole turn',()=>{
+test('undo restores the full single flow containing landing and sliding',()=>{
   const game=cavityFixture(),start=copy(game.active),board=copy(game.board);
-  run(game,[land]);run(game,[move('MOVE_LEFT',2)]);run(game,[land]);run(game,[submitPiece]);
-  assert.equal(undoLastPiece(game),true);assert.deepEqual(game.active,start);assert.deepEqual(game.board,board);assert.equal(game.placementOpen,false);
+  run(game,[land,move('MOVE_LEFT',2),land]);
+  assert.equal(undoLastPiece(game),true);assert.deepEqual(game.active,start);assert.deepEqual(game.board,board);
 });
 
-test('phase landing is held without overwriting a sealed hole until explicit submit',()=>{
+test('phase LAND follows normal flow completion without overwriting a sealed hole',()=>{
   const game=toolFixture('PHASE');game.board[12][4]='J';run(game,[land]);
-  assert.equal(game.active.y,19);assert.equal(game.board[19][4],null);assert.equal(game.board[12][4],'J');
-  run(game,[submitPiece]);assert.equal(game.board[19][4],'PHASE');assert.equal(game.placementOpen,false);
+  assert.equal(game.board[19][4],'PHASE');assert.equal(game.board[12][4],'J');assert.equal(game.lastFlow.reason,'complete');
 });
 
 test('landing mode never defers bomb contact detonation',()=>{
   const game=toolFixture('BOMB');game.board[17][4]='J';run(game,[land,move('MOVE_LEFT',2)]);
-  assert.equal(game.lastFlow.reason,'explosion');assert.equal(game.lastFlow.executed,1);assert.equal(game.transition.kind,'explosion');assert.equal(game.placementOpen,false);
+  assert.equal(game.lastFlow.reason,'explosion');assert.equal(game.lastFlow.executed,1);assert.equal(game.transition.kind,'explosion');assert.equal(game.placementOpen,undefined);
 });
 
-test('tool replacement clears an open placement and resumes classic gravity',()=>{
-  const game=cavityFixture('classic');classicAction(game,land);assert.equal(game.placementOpen,true);
-  assert.equal(useTool(game,'PHASE').ok,true);assert.equal(game.placementOpen,false);assert.equal(game.active.y,0);
+test('tool replacement after landing keeps classic gravity active',()=>{
+  const game=cavityFixture('classic');classicAction(game,land);assert.equal(game.placementOpen,undefined);
+  assert.equal(useTool(game,'PHASE').ok,true);assert.equal(game.placementOpen,undefined);assert.equal(game.active.y,0);
   advance(game,2);assert.ok(game.active.y>0);
 });
 
@@ -603,8 +607,8 @@ test('Shuhang accepts landing before sliding but still commits and advances only
   const game=createGame({mode:'shuhang'});game.pool.forEach(p=>p.type='O');
   game.board[16][2]='J';game.board[16][3]='J';game.board[19][4]='L';game.board[19][5]='L';
   const items=game.pool.map((p,i)=>({pieceId:p.id,steps:i===0?[land,move('MOVE_LEFT',2)]:[move('MOVE_RIGHT',i===1?2:4)]}));
-  assert.equal(startBatch(game,items).ok,true);assert.equal(stepBatch(game).ok,true);assert.equal(game.placementOpen,true);assert.equal(game.batch.cursor,0);
-  finishBatch(game);assert.equal(game.layer,2);assert.equal(game.board[19][2],'O');assert.equal(game.placementOpen,false);
+  assert.equal(startBatch(game,items).ok,true);assert.equal(stepBatch(game).ok,true);assert.equal(game.placementOpen,undefined);assert.equal(game.batch.cursor,0);
+  finishBatch(game);assert.equal(game.layer,2);assert.equal(game.board[19][2],'O');assert.equal(game.placementOpen,undefined);
 });
 
 test('explicit Shuhang drop submission ends that candidate without replaying its automatic final drop',()=>{
@@ -612,4 +616,52 @@ test('explicit Shuhang drop submission ends that candidate without replaying its
   const items=ids.map((pieceId,i)=>({pieceId,steps:i===0?[drop]:[move('MOVE_RIGHT',i*2)]}));
   assert.equal(startBatch(game,items).ok,true);assert.equal(stepBatch(game).ok,true);assert.equal(game.batch.cursor,1);assert.equal(game.pool[0].used,true);
   finishBatch(game);assert.equal(game.layer,2);assert.equal(game.board.flat().filter(Boolean).length,12);
+});
+
+
+test('progression is monotonic with exactly five medium, three hard and two expert additions',()=>{
+  const ranks=['简单','中等','困难','特困难'];
+  assert.equal(LEVELS.length,25);assert.equal(new Set(LEVELS.map(l=>l.id)).size,25);
+  assert.deepEqual(ranks.map(d=>LEVELS.filter(l=>l.difficulty===d).length),[4,11,5,5]);
+  assert.ok(LEVELS.every((l,i)=>!i||ranks.indexOf(l.difficulty)>=ranks.indexOf(LEVELS[i-1].difficulty)));
+  const added=LEVELS.filter(l=>Number(l.id.slice(1))>=16);
+  assert.deepEqual(ranks.map(d=>added.filter(l=>l.difficulty===d).length),[0,5,3,2]);
+  for(const level of added){
+    const index=levelIndex(level.id),game=createGame({levelIndex:index});
+    run(game,LEVEL_SOLUTIONS[index][0]);assert.equal(game.lines,0,level.id+' starts with setup');
+    if(level.difficulty==='中等')assert.ok(level.pieces.length>=3&&level.pieces.length<=4);
+    if(level.difficulty==='困难')assert.ok(level.pieces.length>=5&&level.pieces.length<=6);
+    if(level.difficulty==='特困难')assert.ok(level.pieces.length>=7);
+    const naive=createGame({levelIndex:index});
+    for(const type of level.pieces){
+      if(naive.status==='lost')break;
+      startFlow(naive,[...(level.free?[select(type)]:[]),drop]);
+      while(naive.flow)stepFlow(naive);
+    }
+    assert.notEqual(naive.status,'won',level.id+' requires planned placement');
+  }
+});
+
+test('LAND resolves distance after earlier movements and continues after exact contact',()=>{
+  const game=cavityFixture(),id=game.active.id;
+  assert.equal(startFlow(game,[move('MOVE_LEFT',2),land,move('MOVE_RIGHT',2),land]).ok,true);
+  stepFlow(game);stepFlow(game);assert.equal(game.active.y,14);assert.equal(game.active.id,id);
+  stepFlow(game);stepFlow(game);assert.equal(game.board[17][4],'O');assert.equal(game.lastFlow.executed,4);
+});
+
+test('zero-distance LAND permits a slide and endless gravity still locks normally',()=>{
+  const game=cavityFixture();game.active.y=17;
+  run(game,[land,move('MOVE_LEFT',2),land]);assert.equal(game.board[19][2],'O');
+  const automatic=cavityFixture();automatic.fallMode='automatic';automatic.speed=1;
+  const id=automatic.active.id;startFlow(automatic,[land,move('MOVE_LEFT',2)]);stepFlow(automatic);
+  advance(automatic,1.1);assert.notEqual(automatic.active.id,id);assert.equal(automatic.lastFlow.reason,'gravity');
+});
+
+
+test('legacy completion indices retain the original levels after reordering',()=>{
+  assert.deepEqual(completedLevelIds([0,5,6,7,8,14,14,-1,15,1.5,'3'],true),['P001','P006','P007','P008','P009','P015']);
+  assert.deepEqual(completedLevelIds(['P006','P009','P025','P025','P999',2]),['P006','P009','P025']);
+  assert.deepEqual(completedLevelIds(null,true),[]);
+  assert.equal(LEVELS.findIndex(l=>l.id==='P006'),20);
+  assert.equal(LEVELS.findIndex(l=>l.id==='P009'),2);
 });
