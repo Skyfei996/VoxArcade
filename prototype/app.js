@@ -1,5 +1,5 @@
-import {SHAPES,COLORS,LEVELS,completedLevelIds,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=floating-puzzles-20261123';
-import {GameAudio,commandSound} from './audio.mjs?v=floating-puzzles-20261123';
+import {SHAPES,COLORS,LEVELS,completedLevelIds,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=floating-no-drop-20261123';
+import {GameAudio,commandSound} from './audio.mjs?v=floating-no-drop-20261123';
 import {sizeBoard,drawGrid} from './board-view.mjs';
 const {view}=await import(document.body.dataset.view==='mobile'?'./mobile-view.mjs':'./desktop-view.mjs');
 const audio=new GameAudio();
@@ -298,6 +298,8 @@ function render(){
     const item=COMMANDS.find(c=>c.id===button.dataset.command);button.querySelector('.command-detail').textContent=item.parameter?`${game.mode==='classic'?1:ui.quantity} 格`:item.id==='HARD_DROP'?(game.mode==='classic'?'立即落地固定':'运行并提交'):'旋转方块';
   });
   const dropButton=document.querySelector('[data-command="HARD_DROP"]');
+  dropButton.hidden=game.mode==='puzzle'&&!!LEVELS[game.levelIndex].hideDrop;
+  dropButton.disabled||=dropButton.hidden;
   dropButton.querySelector('.command-label').firstChild.textContent=ui.dropOnly?'落地':'落地并提交';
   dropButton.querySelector('.command-detail').textContent=ui.dropOnly?(game.mode==='classic'?'快速下移 · 长按切换':'加入流程 · 长按切换'):'长按切换为只落地';
   dropButton.setAttribute('aria-label',ui.dropOnly?'落地，按距离快速下移，长按切换':'落地并提交，长按切换');
@@ -554,7 +556,7 @@ function startTour(){
       ['#pauseButton','暂停与继续','暂停会冻结自动下落，点击继续恢复。打开设置、引导或切到后台也会暂停。']
     ]:[
       [mobile?'#flowPanel':'#planList','查看流程步骤',mobile?'点“流程”打开步骤面板，可上移或删除动作，清空只清除草稿。每轮只操作一个方块。':'这里按顺序显示步骤，可上移、删除或清空。草稿只编排，不提前改变棋盘。每轮只操作一个方块。'],
-      ['#runPlan','结束并运行流程','结束编排并依次执行。流程自然结束也会固定当前方块，即使它悬空；随后换下一块并清空流程。想落到底部，请加入“落地并提交”。']
+      ['#runPlan','结束并运行流程','结束编排并依次执行。流程自然结束也会固定当前方块，即使它悬空；随后换下一块并清空流程。'+(dropControl.hidden?'':'想落到底部，请加入“落地并提交”。')]
     ])
   ];
   if(game.mode==='shuhang')tourSteps=[
