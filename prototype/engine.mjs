@@ -48,10 +48,10 @@ LEVELS.push(...[
   {"id":"P023","width":8,"height":12,"rows":["#.......","#.......","#.......","#.#.##.#"],"pieces":["T","Z","S","Z","L","T"],"free":true,"title":"六块连环","difficulty":"困难","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
   {"id":"P024","width":8,"height":12,"rows":["......#.","......#.","...##.##","#..#####"],"pieces":["J","J","I","O","I","L","I"],"free":true,"title":"七步回环","difficulty":"特困难","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
   {"id":"P025","width":8,"height":12,"rows":["..#.#...","..#.#...","..#.##.#"],"pieces":["O","L","I","I","T","O","T","I"],"free":false,"title":"八块终章","difficulty":"特困难","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
-  {"id":"P027","title":"悬空字母 C","width":6,"height":9,"rows":["#####.","#.....","#.....","#####.","......"],"pieces":["I","O","O"],"free":false,"difficulty":"简单","goal":"让长条补齐 C 的上下两笔，再把方块停在悬空的缺口里。"},
-  {"id":"P028","title":"悬空字母 T","width":8,"height":9,"rows":["..####..","...##...","...##...","........","........","........"],"pieces":["J","L","O","O"],"free":false,"difficulty":"中等","goal":"先拼齐 T 的横笔，露出下面的两个方形缺口。"},
-  {"id":"P029","title":"悬空字母 U","width":8,"height":10,"rows":[".#....#.",".#....#.",".#....#.",".######.","........","........"],"pieces":["I","I","O","O","I"],"free":false,"difficulty":"中等","goal":"先固定一侧，再铺字母内侧，最后补齐另一侧。"},
-  {"id":"P030","title":"悬空像素爱心","width":8,"height":13,"rows":[".##..##.",".##..##.",".######.",".######.","..####..","...##...","...##...","........","........"],"pieces":["I","I","O","O","O","J","L"],"free":false,"difficulty":"困难","goal":"先清掉爱心的上半部，再把方块滑进下方两侧的凹槽。"}
+  {"id":"P027","hideDrop":true,"title":"悬空字母 C","width":6,"height":9,"rows":["#####.","#.....","#.....","#####.","......"],"pieces":["I","O","O"],"free":false,"difficulty":"简单","goal":"让长条补齐 C 的上下两笔，再把方块停在悬空的缺口里。"},
+  {"id":"P028","hideDrop":true,"title":"悬空字母 T","width":8,"height":9,"rows":["..####..","...##...","...##...","........","........","........"],"pieces":["J","L","O","O"],"free":false,"difficulty":"中等","goal":"先拼齐 T 的横笔，露出下面的两个方形缺口。"},
+  {"id":"P029","hideDrop":true,"title":"悬空字母 U","width":8,"height":10,"rows":[".#....#.",".#....#.",".#....#.",".######.","........","........"],"pieces":["I","I","O","O","I"],"free":false,"difficulty":"中等","goal":"先固定一侧，再铺字母内侧，最后补齐另一侧。"},
+  {"id":"P030","hideDrop":true,"title":"悬空像素爱心","width":8,"height":13,"rows":[".##..##.",".##..##.",".######.",".######.","..####..","...##...","...##...","........","........"],"pieces":["I","I","O","O","O","J","L"],"free":false,"difficulty":"困难","goal":"先清掉爱心的上半部，再把方块滑进下方两侧的凹槽。"}
 ].map(level=>({...level,tags:[level.difficulty,level.free?'自由排序':'固定顺序']})));
 const DIFFICULTY_ORDER=['简单','中等','困难','特困难'];
 LEVELS.sort((a,b)=>DIFFICULTY_ORDER.indexOf(a.difficulty)-DIFFICULTY_ORDER.indexOf(b.difficulty));
