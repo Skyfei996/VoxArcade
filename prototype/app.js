@@ -1,5 +1,5 @@
-import {SHAPES,COLORS,LEVELS,completedLevelIds,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=puzzle-02-20261123';
-import {GameAudio,commandSound} from './audio.mjs?v=puzzle-02-20261123';
+import {SHAPES,COLORS,LEVELS,completedLevelIds,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=floating-puzzles-20261123';
+import {GameAudio,commandSound} from './audio.mjs?v=floating-puzzles-20261123';
 import {sizeBoard,drawGrid} from './board-view.mjs';
 const {view}=await import(document.body.dataset.view==='mobile'?'./mobile-view.mjs':'./desktop-view.mjs');
 const audio=new GameAudio();
@@ -165,7 +165,7 @@ function updateSpeedControls(){
 function renderLevels(){
   $('levelsList').innerHTML=['简单','中等','困难','特困难'].map(difficulty=>`<h3 class="level-group">${difficulty}</h3>${LEVELS.map((level,index)=>({level,index})).filter(({level})=>level.difficulty===difficulty).map(({level,index})=>`<button class="level-button ${index===game.levelIndex?'active':''} ${completed.has(level.id)?'done':''}" data-level="${index}" aria-label="第${index+1}关 ${level.title} ${difficulty}" aria-current="${index===game.levelIndex?'step':'false'}"><span>${String(index+1).padStart(2,'0')}</span><b>${level.title}</b><small>${difficulty}</small>${completed.has(level.id)?icon('check'):index===game.levelIndex?icon('arrow'):''}</button>`).join('')}`).join('');
   const level=LEVELS[game.levelIndex],total=String(LEVELS.length).padStart(2,'0');
-  $('levelTitle').textContent=level.title;$('levelGoal').textContent=level.targetLines?`用完方块，消除 ${level.targetLines} 行`:'用完方块，清空棋盘';$('levelGoal').title=level.goal;
+  $('levelTitle').textContent=level.title;$('levelGoal').textContent='用完方块，清空棋盘';$('levelGoal').title=level.goal;
   $('levelTags').innerHTML=level.tags.map(tag=>`<span>${tag}</span>`).join('');
   $('missionIndex').textContent=`${String(game.levelIndex+1).padStart(2,'0')} / ${total}`;
   $('completedCount').textContent=`${completed.size} / ${LEVELS.length}`;
@@ -244,7 +244,7 @@ function renderResult(){
   const paused=game.flow?.status==='paused'||game.mode==='classic'&&game.status==='paused',ended=['won','lost'].includes(game.status),won=game.status==='won';
   $('resultOverlay').hidden=!paused&&!ended;if(!paused&&!ended)return;
   $('resultIcon').textContent=paused?'Ⅱ':won?'✓':'↻';$('resultEyebrow').textContent=paused?'TAKE YOUR TIME':won?'WELL PLAYED':'ANOTHER WAY AWAITS';
-  $('resultTitle').textContent=paused?(game.mode==='classic'?'游戏已暂停':'流程已暂停'):won?(LEVELS[game.levelIndex].targetLines?'达成通关目标！':'全部消除！'):'换个方案，再试一次。';
+  $('resultTitle').textContent=paused?(game.mode==='classic'?'游戏已暂停':'流程已暂停'):won?'全部消除！':'换个方案，再试一次。';
   $('resultDescription').textContent=paused?(game.mode==='classic'?'继续后恢复自动下落，也可以撤回上一块。':'已执行步骤保留，继续后从下一步运行。'):won?`全部 ${game.pool.length} 块已使用，${game.moves} 次动作，消除 ${game.lines} 行。`:game.message;
   $('resultPrimary').innerHTML=paused?`${icon('play')}${game.mode==='classic'?'继续游戏':'继续运行'}`:won&&game.mode==='puzzle'&&game.levelIndex<LEVELS.length-1?`下一关 ${icon('arrow')}`:won?'重新挑战':'重新开始';
   $('resultSecondary').textContent=paused?'重开本局':won?'再试一次':'重新安排步骤';
@@ -539,8 +539,8 @@ function startTour(){
   closeRotationPreview();
   const classic=game.mode==='classic',mobile=view.name==='mobile';
   tourSteps=[
-    ['.mode-switch','选择玩法','解谜闯关用给定方块达成关卡目标；无尽方块逐块编排；普通模式即时操作并自动下落；大师模式整层规划、整批执行。'],
-    ...(!classic&&game.mode==='puzzle'?[[mobile?'#openLevels':'.level-section','选择关卡','默认从第一关开始。关卡分为简单、中等、困难、特困难，可随时选关。用完全部方块并达成棋盘上方的目标即可通关。']]:[]),
+    ['.mode-switch','选择玩法','解谜闯关用给定方块清空棋盘；无尽方块逐块编排；普通模式即时操作并自动下落；大师模式整层规划、整批执行。'],
+    ...(!classic&&game.mode==='puzzle'?[[mobile?'#openLevels':'.level-section','选择关卡','默认从第一关开始。关卡分为简单、中等、困难、特困难，可随时选关。用完全部方块并清空棋盘即可通关。']]:[]),
     ...(!['puzzle','shuhang'].includes(game.mode)?[['#toolShelf','道具替换当前方块','点击立即扣除道具、取消当前块并在顶部换上道具块。穿墙单格可以穿过堆积，落地填本列最低空格；炸弹碰到障碍或边界就引爆周围 3×3。单格无需旋转。每 1000 分交替奖励，最多存四个，满额奖励保留；清空或换道具不退款。']]:[]),
     ['#scoreValue','查看得分','得分在棋盘侧边显示，消行后会累积。'],
     ['#restartButton','重新开始','重置当前棋盘、分数和流程，重新挑战当前关卡或本局。'],

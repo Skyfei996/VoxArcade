@@ -47,11 +47,15 @@ LEVELS.push(...[
   {"id":"P022","width":8,"height":12,"rows":["#.......","#.....#.","##....#.","##.####."],"pieces":["J","L","I","S","I"],"free":false,"title":"交错长桥","difficulty":"困难","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
   {"id":"P023","width":8,"height":12,"rows":["#.......","#.......","#.......","#.#.##.#"],"pieces":["T","Z","S","Z","L","T"],"free":true,"title":"六块连环","difficulty":"困难","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
   {"id":"P024","width":8,"height":12,"rows":["......#.","......#.","...##.##","#..#####"],"pieces":["J","J","I","O","I","L","I"],"free":true,"title":"七步回环","difficulty":"特困难","goal":"自行安排出场顺序，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
-  {"id":"P025","width":8,"height":12,"rows":["..#.#...","..#.#...","..#.##.#"],"pieces":["O","L","I","I","T","O","T","I"],"free":false,"title":"八块终章","difficulty":"特困难","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"}
+  {"id":"P025","width":8,"height":12,"rows":["..#.#...","..#.#...","..#.##.#"],"pieces":["O","L","I","I","T","O","T","I"],"free":false,"title":"八块终章","difficulty":"特困难","goal":"按给定顺序出场，观察铺垫与消行后的布局，用完全部方块并清空棋盘。"},
+  {"id":"P027","title":"悬空字母 C","width":6,"height":9,"rows":["#####.","#.....","#.....","#####.","......"],"pieces":["I","O","O"],"free":false,"difficulty":"简单","goal":"让长条补齐 C 的上下两笔，再把方块停在悬空的缺口里。"},
+  {"id":"P028","title":"悬空字母 T","width":8,"height":9,"rows":["..####..","...##...","...##...","........","........","........"],"pieces":["J","L","O","O"],"free":false,"difficulty":"中等","goal":"先拼齐 T 的横笔，露出下面的两个方形缺口。"},
+  {"id":"P029","title":"悬空字母 U","width":8,"height":10,"rows":[".#....#.",".#....#.",".#....#.",".######.","........","........"],"pieces":["I","I","O","O","I"],"free":false,"difficulty":"中等","goal":"先固定一侧，再铺字母内侧，最后补齐另一侧。"},
+  {"id":"P030","title":"悬空像素爱心","width":8,"height":13,"rows":[".##..##.",".##..##.",".######.",".######.","..####..","...##...","...##...","........","........"],"pieces":["I","I","O","O","O","J","L"],"free":false,"difficulty":"困难","goal":"先清掉爱心的上半部，再把方块滑进下方两侧的凹槽。"}
 ].map(level=>({...level,tags:[level.difficulty,level.free?'自由排序':'固定顺序']})));
 const DIFFICULTY_ORDER=['简单','中等','困难','特困难'];
 LEVELS.sort((a,b)=>DIFFICULTY_ORDER.indexOf(a.difficulty)-DIFFICULTY_ORDER.indexOf(b.difficulty));
-LEVELS.splice(1,0,{id:'P026',title:'双拐角接力',width:10,height:10,rows:['........##','...###..##','.###.#.###','######.###'],pieces:['L','J'],spawnTurns:[1,2],free:false,difficulty:'简单',targetLines:2,goal:'按图示顺序使用两块互为镜像的拼块，累计消除两行。',tags:['简单','固定顺序']});
+LEVELS.splice(1,0,{id:'P026',title:'双拐角接力',width:10,height:10,rows:['...###..##','.#####.###','######.###'],pieces:['L','J'],spawnTurns:[1,2],free:false,difficulty:'简单',goal:'按图示顺序使用两块互为镜像的拼块，填满缺口并清空棋盘。',tags:['简单','固定顺序']});
 export function completedLevelIds(saved,legacy=false){
   if(!Array.isArray(saved))return [];
   const ids=legacy?saved.filter(Number.isInteger).map(index=>LEGACY_LEVEL_IDS[index]):saved;
@@ -220,14 +224,9 @@ function commit(game){
   game.active=null;game.generation++;game.holdUsed=false;
   game.message=explosion?'炸弹引爆，清除周围 3×3 范围。':cleared?`消除 ${cleared} 行。`:'方块已固定在当前位置。';
   if(game.mode==='puzzle'&&game.pool.every(p=>p.used)){
-    const targetLines=LEVELS[game.levelIndex].targetLines;
-    if(targetLines){
-      game.status=game.lines>=targetLines?'won':'lost';
-      game.message=`方块已用完，消除 ${game.lines} 行，目标 ${targetLines} 行。`;
-    }else{
-      game.status=game.board.every(row=>row.every(v=>!v))?'won':'lost';
-      game.message=game.status==='won'?'全部方块已用完，棋盘全部清空！':'方块已用完，棋盘还没清空。换个方案再试。';
-    }
+    game.status=game.board.every(row=>row.every(v=>!v))?'won':'lost';
+    game.message=game.status==='won'?'全部方块已用完，棋盘全部清空！':'方块已用完，棋盘还没清空。换个方案再试。';
+
   }else spawnNext(game);
   if(game.mode==='classic')game.turnStart=snapshot(game);
 }
