@@ -9,7 +9,11 @@ export const TOOL_CAPACITY=4;
 export const TOOL_REWARD_SCORE=1000;
 export const toolName=type=>({PHASE:'穿墙单格',BOMB:'炸弹'}[type]??type);
 export const isTool=type=>TOOL_TYPES.includes(type);
-export const shapeMatrix=type=>isTool(type)?[[1]]:SHAPES[type];
+export function shapeMatrix(type,turns=0){
+  let matrix=isTool(type)?[[1]]:SHAPES[type];
+  for(let i=0;i<turns;i++)matrix=rotate(matrix,true);
+  return matrix;
+}
 export const COLORS={I:'#95e6d8',O:'#f1ca72',T:'#b9a5eb',J:'#8bb9ec',L:'#f1ac7a',S:'#b9ed8c',Z:'#ef969b',PHASE:'#c6abff',BOMB:'#ff956d',fixed:'#59766a'};
 export const LEVELS=[
   {id:'P001',title:'最后一条缝',rows:['##....'],pieces:['I'],free:false,goal:'用 I 补齐底行。用完全部方块并清空棋盘。',tags:['入门','固定顺序']},
@@ -47,6 +51,7 @@ LEVELS.push(...[
 ].map(level=>({...level,tags:[level.difficulty,level.free?'自由排序':'固定顺序']})));
 const DIFFICULTY_ORDER=['简单','中等','困难','特困难'];
 LEVELS.sort((a,b)=>DIFFICULTY_ORDER.indexOf(a.difficulty)-DIFFICULTY_ORDER.indexOf(b.difficulty));
+LEVELS.splice(1,0,{id:'P026',title:'双拐角接力',width:10,height:10,rows:['........##','...###..##','.###.#.###','######.###'],pieces:['L','J'],spawnTurns:[1,2],free:false,difficulty:'简单',targetLines:2,goal:'按图示顺序使用两块互为镜像的拼块，累计消除两行。',tags:['简单','固定顺序']});
 export function completedLevelIds(saved,legacy=false){
   if(!Array.isArray(saved))return [];
   const ids=legacy?saved.filter(Number.isInteger).map(index=>LEGACY_LEVEL_IDS[index]):saved;
@@ -113,9 +118,10 @@ function shuffledBag(){
   for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}
   return bag;
 }
-function spawn(game,type,id){
+function spawn(game,type,id,turns){
+  const matrix=copy(shapeMatrix(type,turns));
   game.generation++;
-  game.active={type,id,matrix:copy(shapeMatrix(type)),x:Math.floor((game.width-shapeMatrix(type).length)/2),y:0};
+  game.active={type,id,matrix,x:Math.floor((game.width-matrix.length)/2),y:0};
   game.gravity=0;
   if(!isTool(type)&&!fits(game,game.active)){game.status='lost';game.active=null;game.message='出生位置被挡住了，换个方案再试。';}
 }
@@ -126,7 +132,7 @@ function spawnNext(game){
     spawn(game,game.queue.shift(),`E${++game.serial}`);
   }else if(!LEVELS[game.levelIndex].free){
     const piece=game.pool.find(p=>!p.used);
-    if(piece)spawn(game,piece.type,piece.id);
+    if(piece)spawn(game,piece.type,piece.id,piece.spawnTurns);
   }
 }
 export function inventory(game){
@@ -146,7 +152,7 @@ export function createGame(options={}){
     gravity:0,generation:0,serial:0,flow:null,lastFlow:null,message:'先编排，点击运行后才执行。'};
   if(mode==='puzzle'){
     level.rows.forEach((row,y)=>[...row].forEach((v,x)=>{if(v==='#')game.board[height-level.rows.length+y][x]='fixed';}));
-    game.pool=level.pieces.map((type,i)=>({type,id:`${type}#${i+1}`,used:false}));
+    game.pool=level.pieces.map((type,i)=>({type,id:`${type}#${i+1}`,used:false,spawnTurns:level.spawnTurns?.[i]??0}));
   }
   if(mode==='shuhang')dealBatch(game);else spawnNext(game);if(mode==='classic'){game.speed=CLASSIC_SPEEDS[classicLevel(game)-1];game.turnStart=snapshot(game);}return game;
 }
@@ -214,8 +220,14 @@ function commit(game){
   game.active=null;game.generation++;game.holdUsed=false;
   game.message=explosion?'炸弹引爆，清除周围 3×3 范围。':cleared?`消除 ${cleared} 行。`:'方块已固定在当前位置。';
   if(game.mode==='puzzle'&&game.pool.every(p=>p.used)){
-    game.status=game.board.every(row=>row.every(v=>!v))?'won':'lost';
-    game.message=game.status==='won'?'全部方块已用完，棋盘全部清空！':'方块已用完，棋盘还没清空。换个方案再试。';
+    const targetLines=LEVELS[game.levelIndex].targetLines;
+    if(targetLines){
+      game.status=game.lines>=targetLines?'won':'lost';
+      game.message=`方块已用完，消除 ${game.lines} 行，目标 ${targetLines} 行。`;
+    }else{
+      game.status=game.board.every(row=>row.every(v=>!v))?'won':'lost';
+      game.message=game.status==='won'?'全部方块已用完，棋盘全部清空！':'方块已用完，棋盘还没清空。换个方案再试。';
+    }
   }else spawnNext(game);
   if(game.mode==='classic')game.turnStart=snapshot(game);
 }
@@ -245,7 +257,7 @@ export function validatePlan(steps){
   return {ok:true,message:'执行时判断碰撞，不提前展示结果。'};
 }
 export function startFlow(game,steps){
-  if(game.mode==='classic')return {ok:false,message:'常规模式直接操作，不使用流程。'};
+  if(game.mode==='classic')return {ok:false,message:'普通模式直接操作，不使用流程。'};
   if(game.mode==='shuhang'&&!game.batch)return {ok:false,message:'请完整安排本层全部方块后整批提交。'};
   if(game.flow)return {ok:false,message:'本轮流程尚未完成，请继续运行。'};
   if(['won','lost'].includes(game.status))return {ok:false,message:'请先重开或进入下一关。'};
@@ -276,7 +288,7 @@ export function dispatch(game,command){
     game.gravity=0;return {ok:true,message:'下落设置已更新'};
   }
   if(game.status!=='playing'||!game.flow)return {ok:false,message:'只能通过运行流程执行指令。'};
-  if(game.mode==='shuhang'&&!['MOVE_LEFT','MOVE_RIGHT','ROTATE_CW','ROTATE_CCW','LAND','HARD_DROP'].includes(id))return {ok:false,message:'舒航模式仅执行左右移动、旋转及自动落地。'};
+  if(game.mode==='shuhang'&&!['MOVE_LEFT','MOVE_RIGHT','ROTATE_CW','ROTATE_CCW','LAND','HARD_DROP'].includes(id))return {ok:false,message:'大师模式仅执行左右移动、旋转及自动落地。'};
   if(id==='SELECT_PIECE'){
     if(game.mode!=='puzzle'||!LEVELS[game.levelIndex].free)return {ok:false,message:'本关使用固定顺序。'};
     if(game.active)return {ok:false,message:'一轮流程只操作一个方块。'};
@@ -377,7 +389,7 @@ export function stepFlow(game){
 }
 export function classicAction(game,command){
   if(game.mode!=='classic'||game.status!=='playing')return {ok:false,message:'请先继续游戏。'};
-  if(!['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN','ROTATE_CW','ROTATE_CCW','LAND','SUBMIT_PIECE','HARD_DROP'].includes(command.id))return {ok:false,message:'常规模式不使用流程。'};
+  if(!['MOVE_LEFT','MOVE_RIGHT','MOVE_DOWN','ROTATE_CW','ROTATE_CCW','LAND','SUBMIT_PIECE','HARD_DROP'].includes(command.id))return {ok:false,message:'普通模式不使用流程。'};
   game.transition=null;
   game.flow={pieceId:game.active?.id};
   const result=dispatch(game,command);game.flow=null;
@@ -432,7 +444,7 @@ export function startBatch(game,items){
     if(!item||!game.pool.some(p=>p.id===item.pieceId&&!p.used)||ids.has(item.pieceId))return {ok:false,message:'每个候选方块必须且只能使用一次。'};
     ids.add(item.pieceId);
     if(!Array.isArray(item.steps)||item.steps.length>59)return {ok:false,message:'每个方块最多编排 59 步。'};
-    if(item.steps.some(step=>!step||!BATCH_ACTIONS.includes(step.id)))return {ok:false,message:'舒航模式只能编排左右移动和旋转。'};
+    if(item.steps.some(step=>!step||!BATCH_ACTIONS.includes(step.id)))return {ok:false,message:'大师模式只能编排左右移动和旋转。'};
     const check=validatePlan([...item.steps,{id:'HARD_DROP'}]);if(!check.ok)return check;
   }
   game.batch={items:copy(items),cursor:0};game.status='playing';beginBatchPiece(game);
