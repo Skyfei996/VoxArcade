@@ -1,5 +1,5 @@
-import {SHAPES,COLORS,LEVELS,completedLevelIds,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=landing-levels-20261027';
-import {GameAudio,commandSound} from './audio.mjs?v=landing-levels-20261027';
+import {SHAPES,COLORS,LEVELS,completedLevelIds,COMMANDS,copy,createGame,dispatch,advance,cells,landingPiece,rotationTrace,inventory,startFlow,stepFlow,pauseFlow,resumeFlow,classicAction,classicLevel,CLASSIC_SPEEDS,undoLastPiece,startBatch,stepBatch,BATCH_SIZES,useTool,toolName,isTool,shapeMatrix,TOOL_REWARD_SCORE,TOOL_CAPACITY} from './engine.mjs?v=puzzle-02-20261123';
+import {GameAudio,commandSound} from './audio.mjs?v=puzzle-02-20261123';
 import {sizeBoard,drawGrid} from './board-view.mjs';
 const {view}=await import(document.body.dataset.view==='mobile'?'./mobile-view.mjs':'./desktop-view.mjs');
 const audio=new GameAudio();
@@ -16,9 +16,9 @@ let game=createGame({levelIndex:0});
 const ui={plan:[],wait:0,gravityTime:0,animation:null,step:null,quantity:1,lastFallMode:'manual',lastSpeed:1,previewPiece:null,classicStartLevel:1,autoLevel:true,batchDifficulty:'easy',batchDrafts:[],batchSelected:null,batchLayer:null,dropOnly:false};
 let ruleToastTimer;
 const running=()=>game.flow?.status==='running';
-function miniature(type){
+function miniature(type,turns){
   if(isTool(type))return `<span class="tool-glyph ${type==='PHASE'?'phase-glyph':'bomb-glyph'}" aria-hidden="true">${type==='PHASE'?'◇':'●'}</span>`;
-  const matrix=SHAPES[type];if(!matrix)return '<span class="muted">—</span>';
+  const matrix=shapeMatrix(type,turns);if(!matrix)return '<span class="muted">—</span>';
   const rows=matrix.filter(row=>row.some(Boolean));
   return `<span class="mini-piece" style="grid-template-columns:repeat(${rows[0].length},7px);--piece-color:${COLORS[type]}" aria-hidden="true">${rows.flatMap(row=>row.map(v=>`<i class="${v?'':'empty'}"></i>`)).join('')}</span>`;
 }
@@ -153,7 +153,7 @@ function showDialog(id){
     $('gravityToggle').checked=game.fallMode==='automatic';
     $('gravityToggle').disabled=game.mode!=='endless'||!!game.flow;
     $('speedInput').value=game.speed;updateSpeedControls();
-    $('gravityDescription').textContent=game.mode==='shuhang'?'舒航模式每块执行完左右移动与旋转后，自动落到底部。':game.mode==='classic'?'常规模式持续自动下落，九级速度在棋盘上方设置。':game.mode==='puzzle'?'本关固定手动下落。':game.flow?'本轮完成后才可修改。':'仅在流程运行期间下落；编排时冻结。';
+    $('gravityDescription').textContent=game.mode==='shuhang'?'大师模式每块执行完左右移动与旋转后，自动落到底部。':game.mode==='classic'?'普通模式持续自动下落，九级速度在棋盘上方设置。':game.mode==='puzzle'?'本关固定手动下落。':game.flow?'本轮完成后才可修改。':'仅在流程运行期间下落；编排时冻结。';
   }
   $(id).showModal();
 }
@@ -165,7 +165,7 @@ function updateSpeedControls(){
 function renderLevels(){
   $('levelsList').innerHTML=['简单','中等','困难','特困难'].map(difficulty=>`<h3 class="level-group">${difficulty}</h3>${LEVELS.map((level,index)=>({level,index})).filter(({level})=>level.difficulty===difficulty).map(({level,index})=>`<button class="level-button ${index===game.levelIndex?'active':''} ${completed.has(level.id)?'done':''}" data-level="${index}" aria-label="第${index+1}关 ${level.title} ${difficulty}" aria-current="${index===game.levelIndex?'step':'false'}"><span>${String(index+1).padStart(2,'0')}</span><b>${level.title}</b><small>${difficulty}</small>${completed.has(level.id)?icon('check'):index===game.levelIndex?icon('arrow'):''}</button>`).join('')}`).join('');
   const level=LEVELS[game.levelIndex],total=String(LEVELS.length).padStart(2,'0');
-  $('levelTitle').textContent=level.title;$('levelGoal').textContent='用完方块，清空棋盘';$('levelGoal').title=level.goal;
+  $('levelTitle').textContent=level.title;$('levelGoal').textContent=level.targetLines?`用完方块，消除 ${level.targetLines} 行`:'用完方块，清空棋盘';$('levelGoal').title=level.goal;
   $('levelTags').innerHTML=level.tags.map(tag=>`<span>${tag}</span>`).join('');
   $('missionIndex').textContent=`${String(game.levelIndex+1).padStart(2,'0')} / ${total}`;
   $('completedCount').textContent=`${completed.size} / ${LEVELS.length}`;
@@ -206,7 +206,7 @@ function renderPieces(){
   $('poolLabel').textContent=game.mode==='puzzle'?`剩余库存 · ${level.free?'自由排序':'固定顺序'}`:'当前方块';
   if(game.mode==='puzzle'){
     $('pieceRack').innerHTML=level.free?inventory(game).sort((a,b)=>Number(b.type===(game.active?.type??draftType))-Number(a.type===(game.active?.type??draftType))).map(({type,count})=>`<button class="piece-chip ${count?'':'used'} ${draftType===type?'draft-selected':''} ${game.active?.type===type?'current':''}" data-shape="${type}" aria-label="${type} 方块，剩余 ${count} 个" ${!count||!!game.active||!!game.flow?'disabled':''}>${miniature(type)}<b>×${count}</b></button>`).join(''):
-      game.pool.map((piece,index)=>({...piece,order:index+1})).filter(piece=>!piece.used).map((piece,index)=>`<button class="piece-chip queue-chip ${index===0?'current':''}" data-fixed="true" aria-label="第 ${piece.order} 块：${piece.type}，固定顺序">${miniature(piece.type)}<b>${piece.order}</b></button>`).join('');
+      game.pool.map((piece,index)=>({...piece,order:index+1})).filter(piece=>!piece.used).map((piece,index)=>`<button class="piece-chip queue-chip ${index===0?'current':''}" data-fixed="true" aria-label="第 ${piece.order} 块：${piece.type}，固定顺序">${miniature(piece.type,piece.spawnTurns)}<b>${piece.order}</b></button>`).join('');
     $('pieceRemaining').textContent=`未用 ${game.pool.filter(p=>!p.used).length}`;
   }else{
     $('pieceRack').innerHTML=`<span class="piece-chip current">${miniature(game.active?.type??'T')}</span>`;
@@ -244,7 +244,7 @@ function renderResult(){
   const paused=game.flow?.status==='paused'||game.mode==='classic'&&game.status==='paused',ended=['won','lost'].includes(game.status),won=game.status==='won';
   $('resultOverlay').hidden=!paused&&!ended;if(!paused&&!ended)return;
   $('resultIcon').textContent=paused?'Ⅱ':won?'✓':'↻';$('resultEyebrow').textContent=paused?'TAKE YOUR TIME':won?'WELL PLAYED':'ANOTHER WAY AWAITS';
-  $('resultTitle').textContent=paused?(game.mode==='classic'?'游戏已暂停':'流程已暂停'):won?'全部消除！':'换个方案，再试一次。';
+  $('resultTitle').textContent=paused?(game.mode==='classic'?'游戏已暂停':'流程已暂停'):won?(LEVELS[game.levelIndex].targetLines?'达成通关目标！':'全部消除！'):'换个方案，再试一次。';
   $('resultDescription').textContent=paused?(game.mode==='classic'?'继续后恢复自动下落，也可以撤回上一块。':'已执行步骤保留，继续后从下一步运行。'):won?`全部 ${game.pool.length} 块已使用，${game.moves} 次动作，消除 ${game.lines} 行。`:game.message;
   $('resultPrimary').innerHTML=paused?`${icon('play')}${game.mode==='classic'?'继续游戏':'继续运行'}`:won&&game.mode==='puzzle'&&game.levelIndex<LEVELS.length-1?`下一关 ${icon('arrow')}`:won?'重新挑战':'重新开始';
   $('resultSecondary').textContent=paused?'重开本局':won?'再试一次':'重新安排步骤';
@@ -281,7 +281,7 @@ function render(){
   $('commandHint').textContent=game.mode==='shuhang'?(game.flow?'整批执行中，方案锁定':ui.batchSelected?`为当前选中块添加动作`:'先选择候选方块'):game.mode==='classic'?'点击立即操作 · 自动下落':running()?'正在执行，不能插入动作':'点击按钮，只添加步骤';
   const shownPiece=game.active??draftPiece();
   renderTools();
-  $('boardStatus').textContent=game.mode==='shuhang'?`第 ${game.layer} 层 · ${game.status==='lost'?'本局结束':game.flow?`执行第 ${game.batch.cursor+1}/${game.pool.length} 块`:'整批规划中'}`:game.mode==='classic'?`常规模式 · ${game.status==='playing'?'进行中':game.status==='paused'?'已暂停':'已结束'}`:running()?`运行中 · 第 ${(game.flow?.cursor??0)+1} 步`:game.status==='won'?'关卡完成':game.status==='lost'?'本次结束':game.flow?'流程暂停':shownPiece?`待编排 · ${shownPiece.type} 方块`:'待编排 · 先选一个形状';
+  $('boardStatus').textContent=game.mode==='shuhang'?`第 ${game.layer} 层 · ${game.status==='lost'?'本局结束':game.flow?`执行第 ${game.batch.cursor+1}/${game.pool.length} 块`:'整批规划中'}`:game.mode==='classic'?`普通模式 · ${game.status==='playing'?'进行中':game.status==='paused'?'已暂停':'已结束'}`:running()?`运行中 · 第 ${(game.flow?.cursor??0)+1} 步`:game.status==='won'?'关卡完成':game.status==='lost'?'本次结束':game.flow?'流程暂停':shownPiece?`待编排 · ${shownPiece.type} 方块`:'待编排 · 先选一个形状';
   $('pauseButton').hidden=game.mode!=='classic';$('pauseButton').disabled=['won','lost'].includes(game.status);$('pauseButton').innerHTML=icon(game.status==='paused'?'play':'pause');
   $('pauseButton').setAttribute('aria-label',game.status==='paused'?'继续游戏':'暂停游戏');
   $('scoreLabel').textContent='当前得分';
@@ -539,12 +539,12 @@ function startTour(){
   closeRotationPreview();
   const classic=game.mode==='classic',mobile=view.name==='mobile';
   tourSteps=[
-    ['.mode-switch','选择玩法','解谜闯关用给定方块清空棋盘；无尽方块逐块编排；常规模式即时操作并自动下落；舒航模式整层规划、整批执行。'],
-    ...(!classic&&game.mode==='puzzle'?[[mobile?'#openLevels':'.level-section','选择关卡','默认从第一关开始。十五关分为简单、中等、困难、特困难，可随时选关；用完全部方块并清空棋盘才算通关。']]:[]),
+    ['.mode-switch','选择玩法','解谜闯关用给定方块达成关卡目标；无尽方块逐块编排；普通模式即时操作并自动下落；大师模式整层规划、整批执行。'],
+    ...(!classic&&game.mode==='puzzle'?[[mobile?'#openLevels':'.level-section','选择关卡','默认从第一关开始。关卡分为简单、中等、困难、特困难，可随时选关。用完全部方块并达成棋盘上方的目标即可通关。']]:[]),
     ...(!['puzzle','shuhang'].includes(game.mode)?[['#toolShelf','道具替换当前方块','点击立即扣除道具、取消当前块并在顶部换上道具块。穿墙单格可以穿过堆积，落地填本列最低空格；炸弹碰到障碍或边界就引爆周围 3×3。单格无需旋转。每 1000 分交替奖励，最多存四个，满额奖励保留；清空或换道具不退款。']]:[]),
     ['#scoreValue','查看得分','得分在棋盘侧边显示，消行后会累积。'],
     ['#restartButton','重新开始','重置当前棋盘、分数和流程，重新挑战当前关卡或本局。'],
-    ['#rotationPreviewButton','旋转预览','眼睛图标是预览入口。展开后点顺时针或逆时针，临时查看真实旋转结果，不添加动作。关闭或离开后恢复原样。常规模式预览前会暂停。'],
+    ['#rotationPreviewButton','旋转预览','眼睛图标是预览入口。展开后点顺时针或逆时针，临时查看真实旋转结果，不添加动作。关闭或离开后恢复原样。普通模式预览前会暂停。'],
     ['#undoButton','撤回上一块','撤销最近一个已固定方块的整轮操作，包括消行和积分；恢复原来的棋盘、库存及同一个方块，重新操作。只能撤回一块，运行和动画期间不可用。'],
     [classic||game.mode==='endless'?'#endlessNote':'.piece-bar','当前方块与库存',classic?'方块列表最上面是当前方块，下面按顺序显示后续方块。':'固定顺序按队列出场；自由排序先点选一个形状，数字表示该形状剩余数量。'],
     ['#commandGrid','移动与旋转',classic?'左右移动、下移、逆转、顺转都立即生效。每次移动一格。':'点击左移、右移、下移、逆转、顺转，只添加流程步骤。格数可以设置，动作加入后自动回到一格。'],
@@ -558,7 +558,7 @@ function startTour(){
     ])
   ];
   if(game.mode==='shuhang')tourSteps=[
-    ['.mode-switch','舒航模式','先在脑海中规划一整层，再一次性执行。选中候选后显示它的出生位置和初始方向，方便计算移动格数；规划时不执行动作，也不预览落点或旋转结果。'],
+    ['.mode-switch','大师模式','先在脑海中规划一整层，再一次性执行。选中候选后显示它的出生位置和初始方向，方便计算移动格数；规划时不执行动作，也不预览落点或旋转结果。'],
     ['#batchControls','选择难度与层数','简单每层 3 块，中等 4 块，困难 5 块。全部执行后未溢出就进入下一层，保留棋盘和积分。切换难度会重新开局。'],
     ['.piece-bar','每一块都必须选','逐个点击本层候选，点击顺序就是执行顺序。同形状的方块各自独立，每一块都要选一次。点击已选的方块可继续编辑。'],
     ['#commandGrid','规划移动与落地','先选一块，再编排左右移动、旋转。长按落地按钮半秒可切换只落地，把落地→横移排进同一候选的流程；所有步骤仍等整批提交后执行。每块末尾自动落地并提交，不加动作表示按初始方向直接落地。'],

@@ -2,6 +2,7 @@ import {createRequire} from 'node:module';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {LEVEL_SOLUTIONS} from './level-solutions.mjs';
+import {LEVELS} from '../engine.mjs';
 const require=createRequire(import.meta.url),{chromium,devices}=require(process.argv[2]||'playwright');
 const browser=await chromium.launch({channel:'msedge',headless:true}),base='http://localhost:4173/',errors=[];
 const review=new URL('../review/',import.meta.url);
@@ -48,7 +49,7 @@ try{
     for(const command of steps){if(command.id==='SELECT_PIECE')await page.locator('[data-shape="'+command.params.type+'"]').click();else{if(command.params?.cells)await page.locator('#quantity').selectOption(String(command.params.cells));await page.locator('[data-command="'+command.id+'"]').click();}}
     if(!steps.some(command=>command.id==='HARD_DROP'))await page.locator('#runPlan').click();await page.waitForFunction(()=>document.getElementById('flowCount').textContent==='0');
    }
-   assert.equal(await page.locator('#resultTitle').textContent(),'全部消除！');console.log('PASS: '+view+' level '+(level+1)+' cleared using visible controls.');
+   assert.equal(await page.locator('#resultTitle').textContent(),LEVELS[level].targetLines?'达成通关目标！':'全部消除！');console.log('PASS: '+view+' level '+(level+1)+' cleared using visible controls.');
   }
   await page.close();
  }

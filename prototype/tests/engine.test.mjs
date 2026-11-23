@@ -20,7 +20,7 @@ test('all 70 rotation demonstrations use legal starts and match actual command e
   }
 });
 test('clear transition retains full rows for animation while final game is settled once',()=>{
-  const game=createGame({levelIndex:1});run(game,[drop]);
+  const game=createGame({levelIndex:levelIndex('P002')});run(game,[drop]);
   assert.equal(game.transition.rows.length,2);assert.equal(game.lines,2);assert.equal(game.status,'won');
   assert.ok(game.transition.rows.every(y=>game.transition.board[y].every(Boolean)));
   assert.ok(game.board.flat().every(value=>!value));
@@ -48,13 +48,31 @@ test('landing shadow stops at the first obstruction without changing the game',(
   assert.equal(landingPiece(game,{...game.active,y:7}),null);
   assert.deepEqual(game,before);
 });
-for(let index=0;index<LEVELS.length;index++)test(`${LEVELS[index].id}: all pieces used and cleared through real flows`,()=>{
+for(let index=0;index<LEVELS.length;index++)test(`${LEVELS[index].id}: all pieces used and objective met through real flows`,()=>{
   const game=createGame({levelIndex:index});
   for(const steps of LEVEL_SOLUTIONS[index]){
     run(game,steps);assert.equal(game.flow,null);
     assert.ok(game.lastFlow.logs.every(log=>!log.skipped));
   }
-  assert.equal(game.status,'won');assert.ok(game.pool.every(p=>p.used));assert.ok(game.board.flat().every(v=>!v));
+  assert.equal(game.status,'won');assert.ok(game.pool.every(p=>p.used));
+  const {targetLines}=LEVELS[index];
+  if(targetLines)assert.equal(game.lines,targetLines);
+  else assert.ok(game.board.flat().every(v=>!v));
+});
+test('P026 is the second easy level and uses both pictured orientations in order',()=>{
+  const level=LEVELS[1],game=createGame({levelIndex:1});
+  assert.equal(level.id,'P026');assert.equal(level.difficulty,'简单');
+  assert.equal(game.active.type,'L');assert.deepEqual(game.active.matrix,[[0,1,0],[0,1,0],[0,1,1]]);
+  run(game,LEVEL_SOLUTIONS[1][0]);
+  assert.equal(game.status,'paused');assert.equal(game.active.type,'J');
+  assert.deepEqual(game.active.matrix,[[0,0,0],[1,1,1],[0,0,1]]);
+  run(game,LEVEL_SOLUTIONS[1][1]);
+  assert.equal(game.status,'won');assert.ok(game.board.flat().some(Boolean));
+
+  const missed=createGame({levelIndex:1});
+  run(missed,[drop]);run(missed,[drop]);
+  assert.ok(missed.pool.every(piece=>piece.used));
+  assert.equal(missed.status,'lost');assert.ok(missed.lines<level.targetLines);
 });
 test('planning never executes commands or advances gravity',()=>{
   const game=endlessFixture(),before=copy(game);
@@ -135,7 +153,7 @@ test('fixed-order levels reject manual shape selection',()=>{
   assert.equal(result.ok,false);assert.equal(game.active.id,id);assert.ok(game.pool.every(p=>!p.used));
 });
 test('empty board with unused pieces is not an early win',()=>{
-  const game=createGame({levelIndex:1});
+  const game=createGame({levelIndex:levelIndex('P002')});
   game.width=4;game.board=Array.from({length:8},()=>Array(4).fill(null));
   game.pool=[{type:'I',id:'I#1',used:false},{type:'I',id:'I#2',used:false}];
   game.active={type:'I',id:'I#1',matrix:copy(SHAPES.I),x:0,y:0};
@@ -197,7 +215,7 @@ test('line rewards stay fixed and strongly reward a four-line clear',async()=>{
 });
 test('undo restores a clear, score, inventory and original spawn, once only',async()=>{
   const {undoLastPiece}=await import('../engine.mjs');
-  const game=createGame({levelIndex:1}),before=copy(game);
+  const game=createGame({levelIndex:levelIndex('P002')}),before=copy(game);
   run(game,[drop]);assert.equal(game.score,300);
   assert.equal(undoLastPiece(game),true);
   for(const key of ['board','score','lines','moves','pool','queue','active'])assert.deepEqual(game[key],before[key]);
@@ -621,10 +639,10 @@ test('explicit Shuhang drop submission ends that candidate without replaying its
 
 test('progression is monotonic with exactly five medium, three hard and two expert additions',()=>{
   const ranks=['简单','中等','困难','特困难'];
-  assert.equal(LEVELS.length,25);assert.equal(new Set(LEVELS.map(l=>l.id)).size,25);
-  assert.deepEqual(ranks.map(d=>LEVELS.filter(l=>l.difficulty===d).length),[4,11,5,5]);
+  assert.equal(LEVELS.length,26);assert.equal(new Set(LEVELS.map(l=>l.id)).size,26);
+  assert.deepEqual(ranks.map(d=>LEVELS.filter(l=>l.difficulty===d).length),[5,11,5,5]);
   assert.ok(LEVELS.every((l,i)=>!i||ranks.indexOf(l.difficulty)>=ranks.indexOf(LEVELS[i-1].difficulty)));
-  const added=LEVELS.filter(l=>Number(l.id.slice(1))>=16);
+  const added=LEVELS.filter(l=>Number(l.id.slice(1))>=16&&Number(l.id.slice(1))<=25);
   assert.deepEqual(ranks.map(d=>added.filter(l=>l.difficulty===d).length),[0,5,3,2]);
   for(const level of added){
     const index=levelIndex(level.id),game=createGame({levelIndex:index});
@@ -662,6 +680,6 @@ test('legacy completion indices retain the original levels after reordering',()=
   assert.deepEqual(completedLevelIds([0,5,6,7,8,14,14,-1,15,1.5,'3'],true),['P001','P006','P007','P008','P009','P015']);
   assert.deepEqual(completedLevelIds(['P006','P009','P025','P025','P999',2]),['P006','P009','P025']);
   assert.deepEqual(completedLevelIds(null,true),[]);
-  assert.equal(LEVELS.findIndex(l=>l.id==='P006'),20);
-  assert.equal(LEVELS.findIndex(l=>l.id==='P009'),2);
+  assert.equal(LEVELS.findIndex(l=>l.id==='P006'),21);
+  assert.equal(LEVELS.findIndex(l=>l.id==='P009'),3);
 });
